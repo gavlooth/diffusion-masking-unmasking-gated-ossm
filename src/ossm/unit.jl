@@ -39,7 +39,11 @@ struct GatedOscSSMUnit <: Lux.AbstractLuxLayer
     output_dim::Int
 end
 
-"Hidden state dimension = 2K."
+"""
+    statedim(u::GatedOscSSMUnit) -> Int
+
+Returns the hidden state dimension ``2K``.
+"""
 statedim(u::GatedOscSSMUnit) = 2 * u.K
 
 """
@@ -51,10 +55,13 @@ A NamedTuple here is an immutable record-like container, e.g.
     (B0 = ..., C0 = ..., D = ..., b = ...)
 that Lux and Functors can traverse, move between devices, etc.
 
-Fields:
-- logit_alpha, theta : parameters for oscillatory A
-- B0, C0, D, b       : base SSM matrices/vectors
-- gateB, gateC       : parameters of gating maps G_B, G_C
+Fields of `ps`:
+- `logit_alpha`, `theta` parameterise the diagonal blocks of ``A``.
+- `B0`, `C0`, `D`, `b` are the base matrices and bias of the affine map
+  ``(x,u) ↦ (A x + B_0 u, C_0 x + D u + b)``.
+- `gateB`, `gateC` are `NamedTuple`s whose fields `W` and `b` store the
+  matrices in the gate definitions.  Each `NamedTuple` behaves like an immutable
+  record; Lux traverses them when moving parameters to devices.
 """
 function Lux.initialparameters(rng::Random.AbstractRNG, unit::GatedOscSSMUnit)
     sd = statedim(unit)  # = 2K
@@ -101,7 +108,10 @@ end
 """
     mul_Ax(unit, ps, x)
 
-Compute A x where A is block-diagonal with 2×2 blocks α_i R(θ_i).
+Map ``x ∈ \\mathbb{R}^{2K}`` to ``A x`` where
+``A = \\mathrm{diag}(α_1 R(θ_1), …, α_K R(θ_K))``.  Each block
+``R(θ_i) = \\begin{pmatrix} \\cos θ_i & -\\sin θ_i \\\\ \\sin θ_i & \\cos θ_i \\end{pmatrix}``
+and ``α_i = σ(\\mathrm{logit\\_alpha}_i)``.
 
 α_i = σ(logit_alpha[i]) ∈ (0,1), θ_i = theta[i].
 """
@@ -112,6 +122,8 @@ function mul_Ax(unit::GatedOscSSMUnit, ps, x::AbstractVector{<:Real})
 
     K = Base.length(α)
 
+    # Base.map iterates i = 1,…,K and returns a tuple of 2-vectors; Julia's
+    # do-block syntax `do i` introduces the function inline.
     blocks = Base.map(1:K) do i
         i1 = 2i - 1
         i2 = 2i

@@ -12,11 +12,11 @@ using ..Tokenizer: DEFAULT_SPECIALS, TokenSpan
 # -----------------------------------------------------------------------------
 
 """
-    diffuse_text_step(tok, rng, text, s; protect_specials = true) -> (ids, Z0, Zt)
+    diffuse_text_step(tok, rng, text, s; protect_specials = true)
 
-Encode `text`, compute the clean digit matrix `Z0`, and sample a masked version
-`Zt` using keep probability `s`. Special tokens can optionally be protected from
-masking (default true).
+Given `text`, computes `ids` and `Z0 = \\phi(\\mathrm{Tok}(text))`, then samples
+``Z_t = \\mathrm{Mask}_s(Z_0)`` using `forward_mask`.  Returns the triple
+`(ids, Z0, Zt)`.
 """
 function diffuse_text_step(
     tok::DiffusionTokenizer,
@@ -34,10 +34,14 @@ end
 
 """
     diffuse_text_step_with_spans(tok, rng, text, s; protect_specials = true)
-        -> NamedTuple
 
-Variant of `diffuse_text_step` that returns span metadata to assist with
-partial masking/unmasking schedules in diffusion training.
+Additionally returns span metadata and the indices of protected columns.
+Fields:
+- `ids`
+- `clean_digits`
+- `noised_digits`
+- `spans`
+- `protected_cols`
 """
 function diffuse_text_step_with_spans(
     tok::DiffusionTokenizer,
