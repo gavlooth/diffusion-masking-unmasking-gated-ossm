@@ -13,13 +13,10 @@ using ..Codec: PrimeCodec
 """
     PrimeOutputHead(codec, d_model)
 
-Lux layer:
-- input: H ∈ ℝ^{d_model×N},
-- output: logits ∈ ℝ^{L×(b+1)×N},
-
-where:
-- L = codec.L,
-- b+1 = number of subtoken values (digits 0:(b-1) + mask).
+Represents the affine map
+``H_{out} : \\mathbb{R}^{d×N} → \\mathbb{R}^{L×(b+1)×N}``,
+``H_{out}(H) = \\mathrm{reshape}( W H + b \\mathbf{1}_N^\\top )`` where
+`reshape` is the Julia function that views the data with new dimensions.
 """
 struct PrimeOutputHead <: Lux.AbstractLuxLayer
     codec::PrimeCodec
@@ -44,7 +41,7 @@ function (h::PrimeOutputHead)(H::AbstractMatrix{<:Real}, ps, st)
     out_dim = L * V_sub
 
     logits_flat = ps.W * H .+ ps.b               # ℝ^{out_dim×N}
-    logits = Base.reshape(logits_flat, L, V_sub, N)
+    logits = Base.reshape(logits_flat, L, V_sub, N) # Julia reshape, no copy
 
     return logits, st
 end

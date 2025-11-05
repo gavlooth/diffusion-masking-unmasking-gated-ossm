@@ -13,8 +13,10 @@ using ..Tokenizer: Vocab, DEFAULT_SPECIALS
 """
     protected_columns(ids, vocab; specials = DEFAULT_SPECIALS) -> Vector{Int}
 
-Return column indices of tokens whose ids correspond to `specials`. Use this to
-prevent `<bos>`, `<eos>`, or custom control tokens from being masked.
+Implements the map
+``\\mathrm{Protect} : \\{0,\\dots,V-1\\}^N → 2^{\\{1,…,N\\}}`` that returns the
+set of indices associated with designated special tokens.  The `Set` object
+provides ``O(1)`` membership checks for the subsequent loops.
 """
 function protected_columns(
     ids::AbstractVector{<:Integer},
@@ -44,8 +46,16 @@ end
 """
     forward_mask(rng, codec, Z0, s; protected_cols = Int[]) -> Zt
 
-Digit-level masking with optional protected columns. Uses keep probability `s`
-and fills dropped digits with the codec's mask id.
+Realises the stochastic map
+``\\mathrm{Mask}_s : \\{0,\\dots,b-1\\}^{L×N} → \\{0,\\dots,b\\}^{L×N}`` with
+independent Bernoulli variables:
+```
+(\\mathrm{Mask}_s(Z))_{ij} = \\begin{cases}
+    Z_{ij},  & \\text{with probability } s,\\\\
+    b,       & \\text{with probability } 1-s,
+\\end{cases}
+```
+unless column ``j`` is protected.
 """
 function forward_mask(
     rng::Random.AbstractRNG,
@@ -86,9 +96,15 @@ end
 """
     partial_unmask(rng, codec, Z_prev, Z_ref, keep_mask_prob) -> Z_next
 
-Given a previously masked matrix `Z_prev` and clean reference `Z_ref`, reveal
-a subset of masked digits with probability `1 - keep_mask_prob`. Digits already
-known stay untouched. This is useful for gradual denoising schedules.
+Given ``Z_{prev}`` and ``Z_{ref}``, define
+```
+(\\mathrm{Unmask}_q(Z_{prev}, Z_{ref}))_{ij} =
+    \\begin{cases}
+        Z_{ref,ij}, & Z_{prev,ij} = b \\text{ and Bernoulli}(1-q) = 1, \\\\
+        Z_{prev,ij}, & \\text{otherwise},
+    \\end{cases}
+```
+where ``q = \\mathrm{keep\\_mask\\_prob}``.  This function samples that map.
 """
 function partial_unmask(
     rng::Random.AbstractRNG,

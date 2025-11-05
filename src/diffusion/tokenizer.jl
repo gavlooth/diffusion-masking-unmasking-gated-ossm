@@ -9,7 +9,13 @@ const DEFAULT_SPECIALS = ["<pad>", "<unk>", "<bos>", "<eos>", "<mask>"]
 # Token data structures
 # -----------------------------------------------------------------------------
 
-"Character span metadata for a token; useful for partial masking/unmasking."
+"""
+    TokenSpan(token, surface, span)
+
+Stores the normalised token string, the original surface form, and the
+1-based inclusive character range in the source text.  `UnitRange` is the
+Julia type representing integer intervals `{a, a+1, …, b}`.
+"""
 struct TokenSpan
     token::String          # normalised token used inside the model
     surface::String        # original-case surface form
@@ -19,10 +25,14 @@ end
 """
     TokenizeConfig(; preserve_case=false, special_tokens=DEFAULT_SPECIALS, keep_whitespace=false)
 
-Configuration for the diffusion tokenizer:
-- `preserve_case`: keep original case instead of lowercasing (defaults to false).
-- `special_tokens`: tokens (e.g. `<mask>`, `<partial_mask>`) that should remain intact.
-- `keep_whitespace`: emit explicit whitespace tokens to support very fine-grained masking.
+Defines the deterministic map
+``\\mathrm{Tok}_{cfg} : \\mathrm{Text} → \\mathrm{Tokens}`` controlled by three
+boolean switches:
+
+- `preserve_case`: keep the original casing if `true`, otherwise apply
+  `lowercase`.
+- `special_tokens`: strings that must be recognised atomically.
+- `keep_whitespace`: if `true`, whitespace gaps are emitted as separate tokens.
 """
 struct TokenizeConfig
     preserve_case::Bool
@@ -76,10 +86,10 @@ function _build_token_regex(cfg::TokenizeConfig)
 end
 
 """
-    tokenize(text; config = TokenizeConfig())
+    tokenize(text; config = TokenizeConfig()) -> Vector{String}
 
-Tokenise `text` into normalised tokens suitable for the diffusion pipeline.
-Returns a `Vector{String}` of canonical tokens.
+Applies the map ``\\mathrm{Tok}_{cfg}`` to `text`.  The sequence of tokens is
+returned without surface metadata.
 """
 function tokenize(text::AbstractString; config::TokenizeConfig = TokenizeConfig())
     spans = tokenize_with_spans(text; config = config)
@@ -89,9 +99,9 @@ end
 """
     tokenize_with_spans(text; config = TokenizeConfig()) -> Vector{TokenSpan}
 
-Tokenise while keeping character span metadata and the original surface form.
-This is helpful when you need to partially mask/unmask spans of the text
-for diffusion training.
+Produces both the normalised tokens and the metadata needed for span-aware
+masking.  The loop `for m in eachmatch(...)` traverses all regex matches and
+`push!` appends to the Julia vector.
 """
 function tokenize_with_spans(text::AbstractString; config::TokenizeConfig = TokenizeConfig())
     pattern = _build_token_regex(config)
@@ -145,6 +155,11 @@ end
 
 Build a vocabulary from `texts`. Returns `Vocab`.
 Special tokens are pinned at the front with their provided order.
+
+Mathematically, this constructs a surjective map
+``\\mathrm{stoi} : \\mathcal{W} → \\{0,\\dots,vocab\\_size-1\\}`` where
+``\\mathcal{W}`` is the set of observed tokens.  Frequencies determine the
+ordering of non-special tokens.
 """
 function build_vocab(
     texts::Vector{<:AbstractString};
@@ -188,7 +203,7 @@ end
 "Vector of tokens → vector of ids."
 function encode_tokens(v::Vocab, toks::Vector{String})
     uid = unk_id(v)
-    [get(v.stoi, tok, uid) for tok in toks]
+    [get(v.stoi, tok, uid) for tok in toks]  # comprehension builds a new Vector
 end
 
 "Vector of ids → vector of token strings."
