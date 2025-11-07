@@ -2,6 +2,7 @@
 dlinoss
 ========
 
+
 This tutorial-style module builds a discrete diffusion language model by
 introducing each mathematical map before showing the Julia implementation.
 All maps are defined between explicit Euclidean spaces, and the code mirrors
@@ -119,11 +120,13 @@ DiffusionOSSMBackbone(
     d_model::Int,
     max_len::Int,
     num_oscillators::Int,
-) = DiffusionOSSMBackbone(tok.codec;
+) = DiffusionOSSMBackbone(
+    tok.codec;
     d_sub = d_sub,
     d_model = d_model,
     max_len = max_len,
-    num_oscillators = num_oscillators)
+    num_oscillators = num_oscillators,
+)
 
 """
     DiffusionOSSMBundle(tokenizer, layer)
@@ -142,11 +145,13 @@ function build_diffusion_ossm(
     max_len::Int,
     num_oscillators::Int,
 )
-    layer = DiffusionOSSMBackbone(tok;
+    layer = DiffusionOSSMBackbone(
+        tok;
         d_sub = d_sub,
         d_model = d_model,
         max_len = max_len,
-        num_oscillators = num_oscillators)
+        num_oscillators = num_oscillators,
+    )
     return DiffusionOSSMBundle(tok, layer)
 end
 
@@ -156,11 +161,13 @@ build_diffusion_ossm(
     d_model::Int,
     max_len::Int,
     num_oscillators::Int,
-) = DiffusionOSSMBackbone(codec;
+) = DiffusionOSSMBackbone(
+    codec;
     d_sub = d_sub,
     d_model = d_model,
     max_len = max_len,
-    num_oscillators = num_oscillators)
+    num_oscillators = num_oscillators,
+)
 
 # ---------------------------------------------------------------------------
 # Lux interface: parameters and states
@@ -217,11 +224,13 @@ function (m::DiffusionOSSMBackbone)(
 )
     H_embed, st_embed = m.embedding(Z, ps.embedding, st.embedding)
     H_proj, st_proj = m.projector(H_embed, ps.projector, st.projector)
-    H_time, st_time = m.timepos(H_proj, ps.timepos, st.timepos; t = t, start_pos = start_pos)
+    H_time, st_time =
+        m.timepos(H_proj, ps.timepos, st.timepos; t = t, start_pos = start_pos)
     H_ssm, st_ssm = m.ssm(H_time, ps.ssm, st.ssm)
     logits, st_head = m.head(H_ssm, ps.head, st.head)
 
-    return logits, (
+    return logits,
+    (
         embedding = st_embed,
         projector = st_proj,
         timepos = st_time,
@@ -263,8 +272,13 @@ function forward_diffusion_step(
     t::Float32 = 0.0f0,
     start_pos::Int = 1,
 )
-    ids, clean, masked = diffuse_text_step(bundle.tokenizer, rng, text, keep_prob;
-        protect_specials = protect_specials)
+    ids, clean, masked = diffuse_text_step(
+        bundle.tokenizer,
+        rng,
+        text,
+        keep_prob;
+        protect_specials = protect_specials,
+    )
     logits, st_next = bundle.layer(masked, ps, st; t = t, start_pos = start_pos)
     return (
         ids = ids,
@@ -293,9 +307,15 @@ function forward_diffusion_step_with_spans(
     t::Float32 = 0.0f0,
     start_pos::Int = 1,
 )
-    sample = diffuse_text_step_with_spans(bundle.tokenizer, rng, text, keep_prob;
-        protect_specials = protect_specials)
-    logits, st_next = bundle.layer(sample.noised_digits, ps, st; t = t, start_pos = start_pos)
+    sample = diffuse_text_step_with_spans(
+        bundle.tokenizer,
+        rng,
+        text,
+        keep_prob;
+        protect_specials = protect_specials,
+    )
+    logits, st_next =
+        bundle.layer(sample.noised_digits, ps, st; t = t, start_pos = start_pos)
     return (
         ids = sample.ids,
         clean_digits = sample.clean_digits,
@@ -306,5 +326,8 @@ function forward_diffusion_step_with_spans(
         state = st_next,
     )
 end
+# import Revise; include("dlinoss.jl");
+
+
 
 end
