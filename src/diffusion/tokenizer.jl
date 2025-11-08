@@ -150,7 +150,7 @@ end
 # Vocab construction and conversions
 # -----------------------------------------------------------------------------
 
-"""
+raw"""
     build_vocab(texts; vocab_size, specials = DEFAULT_SPECIALS, config = TokenizeConfig())
 
 Build a vocabulary from `texts`. Returns `Vocab`.

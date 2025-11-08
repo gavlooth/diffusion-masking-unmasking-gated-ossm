@@ -105,7 +105,7 @@ function Lux.initialstates(::Random.AbstractRNG, unit::GatedOscSSMUnit)
     return (x = Base.zeros(Float32, statedim(unit)),)
 end
 
-"""
+raw"""
     mul_Ax(unit, ps, x)
 
 Map ``x ∈ ℝ^{2K}`` to ``A x`` where

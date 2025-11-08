@@ -2,7 +2,6 @@
 dlinoss
 ========
 
-
 This tutorial-style module builds a discrete diffusion language model by
 introducing each mathematical map before showing the Julia implementation.
 All maps are defined between explicit Euclidean spaces, and the code mirrors
@@ -326,8 +325,6 @@ function forward_diffusion_step_with_spans(
         state = st_next,
     )
 end
-# import Revise; include("dlinoss.jl");
-
-
 
 end
+#using Revise; include("src/dlinoss.jl");

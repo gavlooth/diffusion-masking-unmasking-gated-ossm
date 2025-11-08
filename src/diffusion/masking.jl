@@ -10,7 +10,7 @@ using ..Tokenizer: Vocab, DEFAULT_SPECIALS
 # Helpers for selecting protected tokens
 # -----------------------------------------------------------------------------
 
-"""
+raw"""
     protected_columns(ids, vocab; specials = DEFAULT_SPECIALS) -> Vector{Int}
 
 Implements the map
@@ -43,7 +43,7 @@ end
 # Forward diffusion (masking)
 # -----------------------------------------------------------------------------
 
-"""
+raw"""
     forward_mask(rng, codec, Z0, s; protected_cols = Int[]) -> Zt
 
 Realises the stochastic map
@@ -93,7 +93,7 @@ end
 # Reverse diffusion (partial unmasking)
 # -----------------------------------------------------------------------------
 
-"""
+raw"""
     partial_unmask(rng, codec, Z_prev, Z_ref, keep_mask_prob) -> Z_next
 
 Given ``Z_{prev}`` and ``Z_{ref}``, define
