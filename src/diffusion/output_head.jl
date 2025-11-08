@@ -14,8 +14,8 @@ using ..Codec: PrimeCodec
     PrimeOutputHead(codec, d_model)
 
 Represents the affine map
-``H_{out} : \\mathbb{R}^{d×N} → \\mathbb{R}^{L×(b+1)×N}``,
-``H_{out}(H) = \\mathrm{reshape}( W H + b \\mathbf{1}_N^\\top )`` where
+``H_out : ℝ^{d×N} → ℝ^{L×(b+1)×N}``,
+``H_out(H) = reshape( W H + b 𝟙_Nᵀ )`` where
 `reshape` is the Julia function that views the data with new dimensions.
 """
 struct PrimeOutputHead <: Lux.AbstractLuxLayer

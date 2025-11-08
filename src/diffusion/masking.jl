@@ -14,7 +14,7 @@ using ..Tokenizer: Vocab, DEFAULT_SPECIALS
     protected_columns(ids, vocab; specials = DEFAULT_SPECIALS) -> Vector{Int}
 
 Implements the map
-``\\mathrm{Protect} : \\{0,\\dots,V-1\\}^N → 2^{\\{1,…,N\\}}`` that returns the
+``Protect : {0,…,V-1}^N → 2^{\{1,…,N\}}`` that returns the
 set of indices associated with designated special tokens.  The `Set` object
 provides ``O(1)`` membership checks for the subsequent loops.
 """
@@ -47,13 +47,13 @@ end
     forward_mask(rng, codec, Z0, s; protected_cols = Int[]) -> Zt
 
 Realises the stochastic map
-``\\mathrm{Mask}_s : \\{0,\\dots,b-1\\}^{L×N} → \\{0,\\dots,b\\}^{L×N}`` with
+``Mask_s : {0,…,b-1}^{L×N} → {0,…,b}^{L×N}`` with
 independent Bernoulli variables:
 ```
-(\\mathrm{Mask}_s(Z))_{ij} = \\begin{cases}
-    Z_{ij},  & \\text{with probability } s,\\\\
-    b,       & \\text{with probability } 1-s,
-\\end{cases}
+(Mask_s(Z))_{ij} = \begin{cases}
+    Z_{ij},  & \text{with probability } s,\\
+    b,       & \text{with probability } 1-s,
+\end{cases}
 ```
 unless column ``j`` is protected.
 """
@@ -98,13 +98,13 @@ end
 
 Given ``Z_{prev}`` and ``Z_{ref}``, define
 ```
-(\\mathrm{Unmask}_q(Z_{prev}, Z_{ref}))_{ij} =
-    \\begin{cases}
-        Z_{ref,ij}, & Z_{prev,ij} = b \\text{ and Bernoulli}(1-q) = 1, \\\\
-        Z_{prev,ij}, & \\text{otherwise},
-    \\end{cases}
+(Unmask_q(Z_{prev}, Z_{ref}))_{ij} =
+    \begin{cases}
+        Z_{ref,ij}, & Z_{prev,ij} = b \text{ and Bernoulli}(1-q) = 1, \\
+        Z_{prev,ij}, & \text{otherwise},
+    \end{cases}
 ```
-where ``q = \\mathrm{keep\\_mask\\_prob}``.  This function samples that map.
+where ``q = \mathrm{keep\_mask\_prob}``.  This function samples that map.
 """
 function partial_unmask(
     rng::Random.AbstractRNG,

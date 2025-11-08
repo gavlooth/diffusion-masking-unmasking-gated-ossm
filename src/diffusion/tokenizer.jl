@@ -26,7 +26,7 @@ end
     TokenizeConfig(; preserve_case=false, special_tokens=DEFAULT_SPECIALS, keep_whitespace=false)
 
 Defines the deterministic map
-``\\mathrm{Tok}_{cfg} : \\mathrm{Text} → \\mathrm{Tokens}`` controlled by three
+``Tok_cfg : Text → Tokens`` controlled by three
 boolean switches:
 
 - `preserve_case`: keep the original casing if `true`, otherwise apply
@@ -88,7 +88,7 @@ end
 """
     tokenize(text; config = TokenizeConfig()) -> Vector{String}
 
-Applies the map ``\\mathrm{Tok}_{cfg}`` to `text`.  The sequence of tokens is
+Applies the map ``Tok_cfg`` to `text`.  The sequence of tokens is
 returned without surface metadata.
 """
 function tokenize(text::AbstractString; config::TokenizeConfig = TokenizeConfig())

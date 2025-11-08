@@ -10,9 +10,8 @@ import Base
     PrimeCodec(base, L, vocab_size)
 
 Represents the bijection
-``\\phi : \\{0,\\dots,\\mathrm{vocab\\_size}-1\\} → \\{0,\\dots,\\mathrm{base}-1\\}^L``.
-The values `(base, L, vocab_size)` must satisfy ``\\mathrm{base}^L ≥
-\\mathrm{vocab\\_size}``.
+``φ : {0,…,vocab_size-1} → {0,…,base-1}^L``.
+The values `(base, L, vocab_size)` must satisfy ``base^L ≥ vocab_size``.
 """
 struct PrimeCodec
     base::Int       # b
@@ -23,7 +22,7 @@ end
 """
     encode_id(codec, v) -> NTuple{L,Int}
 
-Map ``v ∈ \\{0,\\dots,V-1\\}`` to ``\\phi(v)``.  The helper `Base.ntuple(L) do`
+Map ``v ∈ {0,…,V-1}`` to ``φ(v)``.  The helper `Base.ntuple(L) do`
 creates an `NTuple` by applying the anonymous function to indices `i = 1,…,L`.
 """
 function encode_id(codec::PrimeCodec, v::Int)

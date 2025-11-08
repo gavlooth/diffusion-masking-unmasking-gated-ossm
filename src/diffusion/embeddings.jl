@@ -14,9 +14,9 @@ using ..Codec: PrimeCodec
     PrimeSubtokenEmbedding(codec, d_sub)
 
 Defines the map
-``E : \\{0,\\dots,b\\}^{L×N} → \\mathbb{R}^{(L d_{sub})×N}``,
+``E : {0,…,b}^{L×N} → ℝ^{(L·d_sub)×N}``,
 ``E(Z) = [e_{z_{1,1}}; …; e_{z_{L,1}}] | … | [e_{z_{1,N}}; …; e_{z_{L,N}}]``,
-where the embeddings ``e_j ∈ \\mathbb{R}^{d_{sub}}`` are trainable.
+where the embeddings ``e_j ∈ ℝ^{d_sub}`` are trainable.
 """
 struct PrimeSubtokenEmbedding <: Lux.AbstractLuxLayer
     codec::PrimeCodec
@@ -27,7 +27,7 @@ end
     Lux.initialparameters(rng, e::PrimeSubtokenEmbedding)
 
 Returns a `NamedTuple` with a single field `W`.  The matrix has size
-``d_{sub} × (b+1)``: one column per digit plus the mask.
+``d_sub × (b+1)``: one column per digit plus the mask.
 """
 function Lux.initialparameters(rng::Random.AbstractRNG, e::PrimeSubtokenEmbedding)
     V_sub = e.codec.base + 1           # digits 0:(b-1) plus mask
