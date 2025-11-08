@@ -46,41 +46,41 @@ export DiffusionBlocks,
 Mathematical map
 ----------------
 
-Let a codec ``\\phi : \\{0,\\dots,|V|-1\\} → \\{0,\\dots,b-1\\}^L`` be fixed.
+Let a codec ``φ : {0,…,|V|-1} → {0,…,b-1}^L`` be fixed.
 Define the following sequence of maps operating on digit matrices
-``Z ∈ \\{0,\\dots,b\\}^{L×N}``:
+``Z ∈ {0,…,b}^{L×N}``:
 
 1. **Subtoken embedding**
-   ``E : \\{0,\\dots,b\\}^{L×N} → \\mathbb{R}^{(L d_{sub})×N}``
+   ``E : {0,…,b}^{L×N} → ℝ^{(L·d_sub)×N}``
    given by
    ``E(Z) = [e_{z_{1,1}}; …; e_{z_{L,1}}] | … | [e_{z_{1,N}}; …; e_{z_{L,N}}]``
-   where each ``e_j ∈ \\mathbb{R}^{d_{sub}}`` is a learnable column vector.
+   where each ``e_j ∈ ℝ^{d_sub}`` is a learnable column vector.
 
 2. **Affine projection**
-   ``P : \\mathbb{R}^{(L d_{sub})×N} → \\mathbb{R}^{d_{model}×N}``,
-   ``P(H) = W_{proj} H + b_{proj} \\mathbf{1}_N^\\top`` with
-   ``W_{proj} ∈ \\mathbb{R}^{d_{model}×(L d_{sub})}`` and
-   ``b_{proj} ∈ \\mathbb{R}^{d_{model}}``.
+   ``P : ℝ^{(L·d_sub)×N} → ℝ^{d_model×N}``,
+   ``P(H) = W_proj H + b_proj 𝟙_Nᵀ`` with
+   ``W_proj ∈ ℝ^{d_model×(L·d_sub)}`` and
+   ``b_proj ∈ ℝ^{d_model}``.
 
 3. **Time-position conditioning**
-   ``T : \\mathbb{R}^{d_{model}×N} → \\mathbb{R}^{d_{model}×N}``,
-   ``T(H) = H + P_{pos}[:, s:s+N-1] + g(t) \\mathbf{1}_N^\\top`` where
-   ``P_{pos} ∈ \\mathbb{R}^{d_{model}×max_len}`` and
-   ``g : \\mathbb{R} → \\mathbb{R}^{d_{model}}`` is a two-layer map
-   ``g(t) = W_2 \\max(0, W_1 t + b_1) + b_2``.
+   ``T : ℝ^{d_model×N} → ℝ^{d_model×N}``,
+   ``T(H) = H + P_pos[:, s:s+N-1] + g(t) 𝟙_Nᵀ`` where
+   ``P_pos ∈ ℝ^{d_model×max_len}`` and
+   ``g : ℝ → ℝ^{d_model}`` is a two-layer map
+   ``g(t) = W₂ max(0, W₁ t + b₁) + b₂``.
 
 4. **Gated oscillatory state-space map**
-   ``\\mathcal{G} : \\mathbb{R}^{d_{model}×N} → \\mathbb{R}^{d_{model}×N}``.
+   ``𝒢 : ℝ^{d_model×N} → ℝ^{d_model×N}``.
    Writing the columns of ``H`` as ``(h_1, …, h_N)``, the map is defined by
    the recursion described in `ossm.unit`, yielding columns
    ``(y_1, …, y_N)``.
 
 5. **Digit prediction head**
-   ``H_{out} : \\mathbb{R}^{d_{model}×N} → \\mathbb{R}^{L×(b+1)×N}``,
-   ``H_{out}(Y) = \\mathrm{reshape}( W_{out} Y + b_{out} \\mathbf{1}_N^\\top )``.
+   ``H_out : ℝ^{d_model×N} → ℝ^{L×(b+1)×N}``,
+   ``H_out(Y) = reshape( W_out Y + b_out 𝟙_Nᵀ )``.
 
 We thus obtain the composite map
-``F = H_{out} ∘ \\mathcal{G} ∘ T ∘ P ∘ E``.
+``F = H_out ∘ 𝒢 ∘ T ∘ P ∘ E``.
 
 Implementation details
 ----------------------
@@ -212,7 +212,7 @@ end
     (m::DiffusionOSSMBackbone)(Z, ps, st; t, start_pos) -> (logits, st')
 
 Implements the composite map ``F``.  The argument `Z` is the digit matrix
-``Z ∈ \\{0,\\dots,b\\}^{L×N}``.  The keywords specify the diffusion time `t`
+``Z ∈ {0,…,b}^{L×N}``.  The keywords specify the diffusion time `t`
 and the positional offset `start_pos`.
 """
 function (m::DiffusionOSSMBackbone)(
@@ -247,15 +247,15 @@ end
     forward_diffusion_step(bundle, rng, text, keep_prob, ps, st; kwargs...)
 
 Let `bundle.tokenizer` implement the composition
-``\\mathrm{Tok} : \\mathrm{Text} → \\{0,\\dots,|V|-1\\}^N`` and let
-``\\phi`` be its codec.  Define
-``Z_0 = \\phi(\\mathrm{Tok}(text))`` and let
-``\\mathrm{Mask}_s`` apply independent Bernoulli masks with keep probability
+``Tok : Text → {0,…,|V|-1}^N`` and let
+``φ`` be its codec.  Define
+``Z₀ = φ(Tok(text))`` and let
+``Mask_s`` apply independent Bernoulli masks with keep probability
 ``s`` to each digit, respecting protected columns.
 
 This function computes:
-1. `ids` and `clean_digits` (``Z_0``),
-2. `masked_digits = \\mathrm{Mask}_s(Z_0)``,
+1. `ids` and `clean_digits` (``Z₀``),
+2. `masked_digits = Mask_s(Z₀)`,
 3. `logits, state = bundle.layer(masked_digits, ps, st; kwargs...)`.
 
 It returns a `NamedTuple` with fields

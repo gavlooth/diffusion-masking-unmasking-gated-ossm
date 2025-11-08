@@ -12,8 +12,8 @@ import Random
     TimePosEncoding(d_model, max_len)
 
 Implements the map
-``T : \\mathbb{R}^{d×N} × \\mathbb{R} × \\mathbb{N} → \\mathbb{R}^{d×N}``,
-``T(H; t, s) = H + P[:, s:s+N-1] + g(t) \\mathbf{1}_N^\\top`` with learnable
+``T : ℝ^{d×N} × ℝ × ℕ → ℝ^{d×N}``,
+``T(H; t, s) = H + P[:, s:s+N-1] + g(t) 𝟙_Nᵀ`` with learnable
 `P` and two-layer map ``g``.
 """
 struct TimePosEncoding <: Lux.AbstractLuxLayer

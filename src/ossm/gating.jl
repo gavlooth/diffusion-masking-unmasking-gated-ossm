@@ -10,13 +10,13 @@ raw"""
     compute_gates(unit, ps, u_t::AbstractVector) -> (gB, gC)
 
 Mathematical definition:
-Given parameters ``W_B ∈ \\mathbb{R}^{2K×d_u}``, ``b_B ∈ \\mathbb{R}^{2K}``,
-``W_C ∈ \\mathbb{R}^{d_y×d_u}``, ``b_C ∈ \\mathbb{R}^{d_y}``,
+Given parameters ``W_B ∈ ℝ^{2K×d_u}``, ``b_B ∈ ℝ^{2K}``,
+``W_C ∈ ℝ^{d_y×d_u}``, ``b_C ∈ ℝ^{d_y}``,
 define the maps
 ```
-G_B : \\mathbb{R}^{d_u} → (0,1)^{2K},\\quad
+G_B : ℝ^{d_u} → (0,1)^{2K},\\quad
 G_B(u) = σ(W_B u + b_B),                        \\
-G_C : \\mathbb{R}^{d_u} → (0,1)^{d_y},\\quad
+G_C : ℝ^{d_u} → (0,1)^{d_y},\\quad
 G_C(u) = σ(W_C u + b_C).
 ```
 `compute_gates` evaluates these maps.  The return value is a tuple because
@@ -35,7 +35,7 @@ end
 """
     row_scale(M, row_scales) -> Matrix
 
-The map ``R : \\mathbb{R}^{m×n} × \\mathbb{R}^m → \\mathbb{R}^{m×n}`` defined
+The map ``R : ℝ^{m×n} × ℝ^m → ℝ^{m×n}`` defined
 by ``(R(M, r))_{ij} = r_i · M_{ij}``.  The expression
 `row_scales[:, Base.OneTo(C)]` creates a ``m×n`` matrix by broadcasting the
 vector over columns.  `Base.OneTo(C)` is Julia's unit range `1:C`.
@@ -50,7 +50,7 @@ end
     dynamic_BC(unit, ps, gB, gC) -> (B_t, C_t)
 
 Given gates ``g_B ∈ (0,1)^{2K}`` and ``g_C ∈ (0,1)^{d_y}``, compute
-``B_t = \\mathrm{diag}(g_B) B_0`` and ``C_t = \\mathrm{diag}(g_C) C_0``.
+``B_t = diag(g_B) B_0`` and ``C_t = diag(g_C) C_0``.
 """
 function dynamic_BC(unit, ps, gB::AbstractVector{<:Real}, gC::AbstractVector{<:Real})
     B_t = row_scale(ps.B0, gB)

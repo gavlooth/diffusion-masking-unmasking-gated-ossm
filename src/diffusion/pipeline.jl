@@ -14,8 +14,8 @@ using ..Tokenizer: DEFAULT_SPECIALS, TokenSpan
 """
     diffuse_text_step(tok, rng, text, s; protect_specials = true)
 
-Given `text`, computes `ids` and `Z0 = \\phi(\\mathrm{Tok}(text))`, then samples
-``Z_t = \\mathrm{Mask}_s(Z_0)`` using `forward_mask`.  Returns the triple
+Given `text`, computes `ids` and `Z0 = φ(Tok(text))`, then samples
+``Z_t = Mask_s(Z_0)`` using `forward_mask`.  Returns the triple
 `(ids, Z0, Zt)`.
 """
 function diffuse_text_step(

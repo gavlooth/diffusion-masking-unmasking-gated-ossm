@@ -108,10 +108,10 @@ end
 """
     mul_Ax(unit, ps, x)
 
-Map ``x ∈ \\mathbb{R}^{2K}`` to ``A x`` where
-``A = \\mathrm{diag}(α_1 R(θ_1), …, α_K R(θ_K))``.  Each block
-``R(θ_i) = \\begin{pmatrix} \\cos θ_i & -\\sin θ_i \\\\ \\sin θ_i & \\cos θ_i \\end{pmatrix}``
-and ``α_i = σ(\\mathrm{logit\\_alpha}_i)``.
+Map ``x ∈ ℝ^{2K}`` to ``A x`` where
+``A = diag(α₁ R(θ₁), …, α_K R(θ_K))``.  Each block
+``R(θ_i) = \begin{pmatrix} \cos θ_i & -\sin θ_i \\ \sin θ_i & \cos θ_i \end{pmatrix}``
+and ``α_i = σ(logit_alpha_i)``.
 
 α_i = σ(logit_alpha[i]) ∈ (0,1), θ_i = theta[i].
 """

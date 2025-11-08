@@ -16,7 +16,7 @@ Wrap a `GatedOscSSMUnit` to act on sequences:
 - Output Y ∈ ℝ^{output_dim×N}, columns Y[:, t] = y_t
 
 The wrapper realises the map
-``F : (\\mathbb{R}^{d_u})^N → (\\mathbb{R}^{d_y})^N`` defined by
+``F : (ℝ^{d_u})^N → (ℝ^{d_y})^N`` defined by
 ``F(u_1, …, u_N) = (y_1, …, y_N)`` where each pair ``(y_t, x_{t+1})`` is
 obtained by applying the underlying `GatedOscSSMUnit`.
 """
