@@ -2,8 +2,8 @@ module Pipeline
 
 import Random
 
-using ..DiffusionTokenizerModule: DiffusionTokenizer, encode_text_to_digits,
-    encode_text_to_digits_with_spans
+using ..DiffusionTokenizerModule:
+    DiffusionTokenizer, encode_text_to_digits, encode_text_to_digits
 using ..Masking: forward_mask, protected_columns
 using ..Tokenizer: DEFAULT_SPECIALS, TokenSpan
 
@@ -26,8 +26,9 @@ function diffuse_text_step(
     protect_specials::Bool = true,
 )
     ids, Z0 = encode_text_to_digits(tok, text)
-    protected_cols = protect_specials ?
-        protected_columns(ids, tok.vocab; specials = DEFAULT_SPECIALS) : Int[]
+    protected_cols =
+        protect_specials ? protected_columns(ids, tok.vocab; specials = DEFAULT_SPECIALS) :
+        Int[]
     Zt = forward_mask(rng, tok.codec, Z0, s; protected_cols = protected_cols)
     return ids, Z0, Zt
 end
@@ -50,9 +51,10 @@ function diffuse_text_step_with_spans(
     s::Float32;
     protect_specials::Bool = true,
 )
-    ids, Z0, spans = encode_text_to_digits_with_spans(tok, text)
-    protected_cols = protect_specials ?
-        protected_columns(ids, tok.vocab; specials = DEFAULT_SPECIALS) : Int[]
+    ids, Z0, spans = encode_text_to_digits(tok, text)
+    protected_cols =
+        protect_specials ? protected_columns(ids, tok.vocab; specials = DEFAULT_SPECIALS) :
+        Int[]
     Zt = forward_mask(rng, tok.codec, Z0, s; protected_cols = protected_cols)
     return (
         ids = ids,
