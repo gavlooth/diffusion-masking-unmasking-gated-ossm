@@ -40,10 +40,11 @@ struct TokenizeConfig
     keep_whitespace::Bool
 end
 
-TokenizeConfig(; preserve_case::Bool = false,
+TokenizeConfig(;
+    preserve_case::Bool = false,
     special_tokens::Vector{String} = DEFAULT_SPECIALS,
-    keep_whitespace::Bool = false) =
-        TokenizeConfig(preserve_case, special_tokens, keep_whitespace)
+    keep_whitespace::Bool = false,
+) = TokenizeConfig(preserve_case, special_tokens, keep_whitespace)
 
 
 # -----------------------------------------------------------------------------
@@ -64,7 +65,8 @@ end
 _escape_for_regex(tok::AbstractString) = replace(tok, r"([\\.^$|?*+()\[\]{})])" => s"\\\1")
 
 function _build_token_regex(cfg::TokenizeConfig)
-    specials = isempty(cfg.special_tokens) ? "" :
+    specials =
+        isempty(cfg.special_tokens) ? "" :
         join(_escape_for_regex.(sort(cfg.special_tokens; by = length, rev = true)), "|")
 
     components = String[]
@@ -103,7 +105,10 @@ Produces both the normalised tokens and the metadata needed for span-aware
 masking.  The loop `for m in eachmatch(...)` traverses all regex matches and
 `push!` appends to the Julia vector.
 """
-function tokenize_with_spans(text::AbstractString; config::TokenizeConfig = TokenizeConfig())
+function tokenize_with_spans(
+    text::AbstractString;
+    config::TokenizeConfig = TokenizeConfig(),
+)
     pattern = _build_token_regex(config)
     raw = String(text)
     processed = config.preserve_case ? raw : Base.lowercase(raw)
@@ -127,7 +132,11 @@ function tokenize_with_spans(text::AbstractString; config::TokenizeConfig = Toke
     return spans
 end
 
-function _inject_whitespace_tokens(spans::Vector{TokenSpan}, raw::String, cfg::TokenizeConfig)
+function _inject_whitespace_tokens(
+    spans::Vector{TokenSpan},
+    raw::String,
+    cfg::TokenizeConfig,
+)
     enriched = TokenSpan[]
     cursor = 1
     for span in spans
@@ -161,29 +170,38 @@ Mathematically, this constructs a surjective map
 ``\\mathcal{W}`` is the set of observed tokens.  Frequencies determine the
 ordering of non-special tokens.
 """
+
+function simple_tokenize(text::AbstractString)
+    t = Base.lowercase(String(text))
+    tokens = String[]
+    for m in eachmatch(r"[A-Za-z0-9_]+|[^\sA-Za-z0-9_]", t)
+        push!(tokens, m.match)
+    end
+    return tokens
+end
+
+
 function build_vocab(
     texts::Vector{<:AbstractString};
     vocab_size::Int = 10_000,
     specials::Vector{String} = DEFAULT_SPECIALS,
-    config::Union{Nothing,TokenizeConfig} = nothing,
-)
-    config === nothing && (config = TokenizeConfig(special_tokens = specials))
+    config = nothing,
+)  # keep the arg for compatibility
     counts = Dict{String,Int}()
     for txt in texts
-        tokens = tokenize(txt; config = config)
-        for tok in tokens
+        for tok in simple_tokenize(txt)   # <-- changed line
             counts[tok] = get(counts, tok, 0) + 1
         end
     end
 
     sorted = sort(collect(counts); by = x -> (-x[2], x[1]))
+
     keep = first(sorted, max(0, vocab_size - length(specials)))
     vocab_tokens = vcat(specials, [p[1] for p in keep])
 
     stoi = Dict{String,Int}(tok => i - 1 for (i, tok) in enumerate(vocab_tokens))
     itos = Vector{String}(vocab_tokens)
 
-    # Ensure specials stay at fixed ids 0,1,2,...
     for (fixed_id, tok) in enumerate(specials)
         stoi[tok] = fixed_id - 1
         itos[fixed_id] = tok
@@ -191,6 +209,8 @@ function build_vocab(
 
     return Vocab(stoi, itos)
 end
+
+
 
 "Return the id of `<unk>` in this vocab."
 unk_id(v::Vocab) = v.stoi["<unk>"]

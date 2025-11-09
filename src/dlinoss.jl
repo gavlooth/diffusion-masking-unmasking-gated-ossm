@@ -1,7 +1,6 @@
 """
 dlinoss
 ========
-
 This tutorial-style module builds a discrete diffusion language model by
 introducing each mathematical map before showing the Julia implementation.
 All maps are defined between explicit Euclidean spaces, and the code mirrors
@@ -326,5 +325,41 @@ function forward_diffusion_step_with_spans(
     )
 end
 
+
+#=
+
+include("src/diffusion.jl")
+
+import .DiffusionBlocks
+using Revise; include("src/dlinoss.jl");
+texts= readlines("./data_sets/wiki.train.raw" )
+vocab=DiffusionBlocks.build_vocab(texts;vocab_size=10000)
+length(vocab.itos)
+
+max_seq_len =256
+batch_size =32 
+V = length(vocab.itos)
+ base = 16
+L    = 4
+codec = DiffusionBlocks.PrimeCodec(base, L, V)
+tok   = DiffusionBlocks.DiffusionTokenizer(vocab, codec)
+
+encoded = map(text -> DiffusionBlocks.encode_text_to_digits(tok, text), texts)
+ids, Z0 = encoded[1]
+show(Z0)
+using Random
+rng = Random.default_rng()
+s   = 0.7f0  # keep 70% of digits, mask 30%
+
+Zt = DiffusionBlocks.forward_mask(rng, codec, Z0, s)
+# Zt has entries in {0,…,base-1, base}; base denotes mask.
+
+km_id = DiffusionBlocks.mask_id(codec)
+Zt_view = Zt[:, 1:8]           # first 8 tokens
+
+# Replace mask_id with -1 so they stand out
+println( replace(string.(Zt_view), string(m_id) => "M") )
+show_masks(Zt, codec; cols = 1:16)
+=#
 end
-#using Revise; include("src/dlinoss.jl");
+
