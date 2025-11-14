@@ -11,5 +11,6 @@ include("osc_mamba_mixer.jl")
 include("restricted_attention.jl")
 include("energy_blocks.jl")
 include("prime_tokenizer.jl")
+include("perigee_diffusion.jl")
 
 end # module
