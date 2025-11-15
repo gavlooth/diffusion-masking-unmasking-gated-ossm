@@ -60,7 +60,7 @@ end
 
 @inline function band_mask(T::Int, radius::Int)
     radius < 0 && throw(ArgumentError("window radius must be non-negative"))
-    return [abs(i - j) <= radius ? 0.0f0 : -Inf32 for i in 1:T, j in 1:T]
+    return [abs(i - j) > radius for i in 1:T, j in 1:T]
 end
 
 function restricted_head_attention(
@@ -70,11 +70,12 @@ function restricted_head_attention(
     radius::Int,
 )
     time_steps = size(q_h, 2)
-    scale = inv(sqrt(Float32(size(q_h, 1))))
-    scores = scale .* (transpose(q_h) * k_h)
-    masked = scores .+ band_mask(time_steps, radius)
-    weights = NNlib.softmax(masked; dims = 2)
-    return v_h * transpose(weights)
+    mask = band_mask(time_steps, radius)
+    q3 = reshape(q_h, size(q_h, 1), time_steps, 1)
+    k3 = reshape(k_h, size(k_h, 1), time_steps, 1)
+    v3 = reshape(v_h, size(v_h, 1), time_steps, 1)
+    attn, _ = NNlib.dot_product_attention(q3, k3, v3; mask = mask)
+    return reshape(attn, size(q_h, 1), time_steps)
 end
 
 function (layer::RestrictedAttention)(
