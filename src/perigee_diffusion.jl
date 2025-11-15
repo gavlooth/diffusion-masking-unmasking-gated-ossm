@@ -284,6 +284,7 @@ function build_perigee_model(
     vocab_dim::Int,
     mamba_repeat::Int = 2,
     radius_factor::Real = 4.0,
+    radius_growth::Real = 0.0,
     min_radius::Int = 1,
     max_radius::Union{Int,Nothing} = nothing,
 )
@@ -294,8 +295,8 @@ function build_perigee_model(
             model_dim,
             oscillator_count,
             num_heads;
+            radius_factor = radius_factor * (1 + radius_growth * (idx - 1)),
             first_input_dim = idx == 1 ? input_dim : nothing,
-            radius_factor = radius_factor,
             min_radius = min_radius,
             max_radius = max_radius,
         ) for idx = 1:num_layers
