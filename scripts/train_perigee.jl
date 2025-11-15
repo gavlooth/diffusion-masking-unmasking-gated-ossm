@@ -241,7 +241,7 @@ function train()
                 batch_gpu = (
                     observed = to_device(batch.observed, use_gpu),
                     targets = to_device(batch.targets, use_gpu),
-                    mask_positions = batch.mask_positions,
+                    mask_matrix = to_device(batch.mask_matrix, use_gpu),
                 )
 
                 loss_fn = function (param)
@@ -298,7 +298,7 @@ function evaluate(model, tokenizer, sequences, cfg, ps, st_template, use_gpu, rn
         batch_gpu = (
             observed = to_device(batch.observed, use_gpu),
             targets = to_device(batch.targets, use_gpu),
-            mask_positions = batch.mask_positions,
+            mask_matrix = to_device(batch.mask_matrix, use_gpu),
         )
         loss, st_eval = perigee_diffusion_loss(model, batch_gpu, ps, st_eval)
         total += loss

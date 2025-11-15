@@ -326,15 +326,22 @@ function perigee_prepare_batch(
     end
     obs = hcat(map(x -> Float32.(x.encoded), masked)...)
     targets = hcat(map(x -> Float32.(x.targets), masked)...)
-    mask_positions = collect(Iterators.flatten(getindex.(masked, :mask_indices)))
-    return (observed = obs, targets = targets, mask_positions = mask_positions)
+    mask_matrix = zeros(Float32, size(obs, 1), length(masked))
+    for (col, item) in enumerate(masked)
+        for idx in item.mask_indices
+            mask_matrix[idx, col] = 1f0
+        end
+    end
+    return (observed = obs, targets = targets, mask_matrix = mask_matrix)
 end
 
 function perigee_diffusion_loss(model::PerigeeDiffusionLM, batch::NamedTuple, ps, st)
     output, st_new = model(batch.observed, ps, st)
     pred = output.logits
     residual = pred - batch.targets
-    loss = mean(abs2, residual)
+    base_loss = mean(abs2, residual)
+    mask_loss = isempty(batch.mask_matrix) ? 0f0 : mean(abs2, residual .* batch.mask_matrix)
+    loss = base_loss + 2f0 * mask_loss
     return loss, st_new
 end
 
