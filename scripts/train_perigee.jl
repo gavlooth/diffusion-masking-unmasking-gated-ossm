@@ -128,6 +128,17 @@ function move_tree(tree, mover)
     return Functors.fmap(x -> x isa AbstractArray ? mover(x) : x, tree)
 end
 
+function tree_l2_norm(tree)
+    acc = Ref(0.0f0)
+    Functors.fmap(tree) do x
+        if x isa AbstractArray
+            acc[] += sum(abs2, Float32.(x))
+        end
+        x
+    end
+    return sqrt(acc[])
+end
+
 function log_entry!(io, data)
     JSON3.write(io, data)
     write(io, '\n')
@@ -252,6 +263,7 @@ function train()
                 grads = back(1f0)[1]
                 batch_loss, st = perigee_diffusion_loss(model, batch_gpu, ps, st)
                 opt_state, ps = Optimisers.update(opt_state, ps, grads)
+                grad_norm = tree_l2_norm(grads)
 
                 global_step += 1
                 if global_step % 25 == 0
@@ -260,6 +272,8 @@ function train()
                         "epoch" => epoch,
                         "step" => global_step,
                         "loss" => float(batch_loss),
+                        "grad_norm" => grad_norm,
+                        "learning_rate" => cfg.training["learning_rate"],
                     ))
                     println("[epoch $(epoch)] step $(global_step) loss = $(round(batch_loss, digits=4))")
                 end
