@@ -6,6 +6,7 @@ import LinearAlgebra               # for LinearAlgebra.Diagonal
 
 greet() = print("Hello World!")
 
+include("rng_utils.jl")
 include("oscillator_layers.jl")
 include("osc_mamba_mixer.jl")
 include("restricted_attention.jl")

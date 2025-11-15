@@ -29,7 +29,7 @@ function EnergyInterleaveBlock(
 end
 
 function initialparameters(rng::Random.AbstractRNG, block::EnergyInterleaveBlock)
-    rngs = Random.split(rng, 5)
+    rngs = scatter_rngs(rng, 5)
     return (
         mamba = initialparameters(rngs[1], block.mamba),
         attention = initialparameters(rngs[2], block.attention),
@@ -40,7 +40,7 @@ function initialparameters(rng::Random.AbstractRNG, block::EnergyInterleaveBlock
 end
 
 function initialstates(rng::Random.AbstractRNG, block::EnergyInterleaveBlock)
-    rngs = Random.split(rng, 5)
+    rngs = scatter_rngs(rng, 5)
     return (
         mamba = initialstates(rngs[1], block.mamba),
         attention = initialstates(rngs[2], block.attention),
@@ -105,7 +105,7 @@ end
 
 function initialparameters(rng::Random.AbstractRNG, model::EnergyGuidedDiffusionLLM)
     block_count = length(model.blocks)
-    rngs = Random.split(rng, block_count + 2)
+    rngs = scatter_rngs(rng, block_count + 2)
     block_ps = ntuple(
         i -> initialparameters(rngs[i], model.blocks[i]),
         Val(block_count),
@@ -121,7 +121,7 @@ end
 
 function initialstates(rng::Random.AbstractRNG, model::EnergyGuidedDiffusionLLM)
     block_count = length(model.blocks)
-    rngs = Random.split(rng, block_count + 2)
+    rngs = scatter_rngs(rng, block_count + 2)
     block_st = ntuple(
         i -> initialstates(rngs[i], model.blocks[i]),
         Val(block_count),

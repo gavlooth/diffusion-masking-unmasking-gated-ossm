@@ -161,8 +161,10 @@ end
 # Block forward (one step): wires bank params into the unit
 function (blk::OscSSMBlock)(u_t::AbstractVector, ps_blk::NamedTuple, st_blk::NamedTuple)
     # Destructure param/state trees by name
-    (; shared_bank = ps_bank, ssm_unit = ps_unit) = ps_blk
-    (; shared_bank = st_bank, ssm_unit = st_unit) = st_blk
+    ps_bank = ps_blk.shared_bank
+    ps_unit = ps_blk.ssm_unit
+    st_bank = st_blk.shared_bank
+    st_unit = st_blk.ssm_unit
 
     # Delegate to unit, passing bank params
     y_t, st_unit′ = blk.ssm_unit(u_t, ps_unit, st_unit, ps_bank)

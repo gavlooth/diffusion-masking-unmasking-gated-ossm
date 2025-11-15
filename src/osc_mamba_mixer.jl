@@ -28,7 +28,7 @@ function OscMambaMixer(input_dim::Int, model_dim::Int, oscillator_count::Int)
 end
 
 function initialparameters(rng::Random.AbstractRNG, layer::OscMambaMixer)
-    rngs = Random.split(rng, 5)
+    rngs = scatter_rngs(rng, 5)
     return (
         oscillator_block = initialparameters(rngs[1], layer.oscillator_block),
         input_proj = Lux.initialparameters(rngs[2], layer.input_proj),
@@ -39,7 +39,7 @@ function initialparameters(rng::Random.AbstractRNG, layer::OscMambaMixer)
 end
 
 function initialstates(rng::Random.AbstractRNG, layer::OscMambaMixer)
-    rngs = Random.split(rng, 5)
+    rngs = scatter_rngs(rng, 5)
     return (
         oscillator_block = initialstates(rngs[1], layer.oscillator_block),
         input_proj = Lux.initialstates(rngs[2], layer.input_proj),

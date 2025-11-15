@@ -35,7 +35,7 @@ function RestrictedAttention(model_dim::Int, num_heads::Int, window_radius::Int)
 end
 
 function initialparameters(rng::Random.AbstractRNG, layer::RestrictedAttention)
-    rngs = Random.split(rng, 4)
+    rngs = scatter_rngs(rng, 4)
     return (
         q_proj = Lux.initialparameters(rngs[1], layer.q_proj),
         k_proj = Lux.initialparameters(rngs[2], layer.k_proj),
@@ -45,7 +45,7 @@ function initialparameters(rng::Random.AbstractRNG, layer::RestrictedAttention)
 end
 
 function initialstates(rng::Random.AbstractRNG, layer::RestrictedAttention)
-    rngs = Random.split(rng, 4)
+    rngs = scatter_rngs(rng, 4)
     return (
         q_proj = Lux.initialstates(rngs[1], layer.q_proj),
         k_proj = Lux.initialstates(rngs[2], layer.k_proj),

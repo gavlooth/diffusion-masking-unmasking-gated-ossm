@@ -1,0 +1,27 @@
+[model]
+num_layers = 2
+model_dim = 64
+oscillator_count = 8
+num_heads = 4
+mamba_repeat = 1
+radius_factor = 4.0
+min_radius = 1
+max_radius = 32
+
+[training]
+train_path = "data_sets/wiki.train.raw"
+val_path = "data_sets/wiki.valid.raw"
+sequence_length = 64
+stride = 64
+max_sequences = 64
+batch_size = 4
+epochs = 1
+learning_rate = 0.0005
+mask_fraction = 0.2
+unmask_fraction = 0.3
+seed = 1337
+vocab_path = "artifacts/perigee/perigee_vocab.json"
+checkpoint_dir = "artifacts/perigee/checkpoints"
+log_path = "artifacts/perigee/logs/smoke_log.jsonl"
+checkpoint_name = "perigee_smoke_epoch1.jls"
+use_gpu = false
