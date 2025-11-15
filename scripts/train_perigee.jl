@@ -13,6 +13,8 @@ using Optimisers
 using Zygote
 using Functors
 using Logging
+using LoggingExtras
+using ParameterSchedulers
 
 import CUDA
 
@@ -139,10 +141,54 @@ function tree_l2_norm(tree)
     return sqrt(acc[])
 end
 
-function log_entry!(io, data)
-    JSON3.write(io, data)
+function sanitize_log!(data::Dict{String,Any})
+    for (k, v) in data
+        if v isa AbstractFloat && !isfinite(v)
+            data[k] = missing
+        end
+    end
+    return data
+end
+
+function json_formatter(io, log)
+    payload = Dict{String,Any}(
+        "level" => string(log.level),
+        "message" => log.message,
+    )
+    for (k, v) in log.kwargs
+        payload[string(k)] = v
+    end
+    JSON3.write(io, payload)
     write(io, '\n')
-    flush(io)
+end
+
+function log_entry!(logger, data::Dict{String,Any})
+    kwargs = Tuple(Symbol(k) => data[k] for k in keys(data))
+    LoggingExtras.with_logger(logger) do
+        @info "perigee" kwargs...
+    end
+end
+
+function scale_tree(tree, factor::Real)
+    return Functors.fmap(x -> x isa AbstractArray ? factor .* x : x, tree)
+end
+
+function build_lr_schedule(cfg::TrainConfig)
+    base_lr = cfg.training["learning_rate"]
+    sched_cfg = get(cfg.training, "lr_schedule", nothing)
+    sched_cfg === nothing && return step -> base_lr
+    kind = get(sched_cfg, "type", "cosine")
+    if kind == "cosine"
+        max_lr = get(sched_cfg, "max_lr", base_lr)
+        min_lr = get(sched_cfg, "min_lr", max_lr / 10)
+        period = get(sched_cfg, "period", 1000)
+        return ParameterSchedulers.CosAnneal(max_lr, min_lr, period)
+    elseif kind == "triangle"
+        period = get(sched_cfg, "period", 500)
+        return ParameterSchedulers.Triangle(base_lr, period)
+    else
+        return step -> base_lr
+    end
 end
 
 function build_optimizer(cfg::TrainConfig)
@@ -235,59 +281,70 @@ function train()
 
     opt = build_optimizer(cfg)
     opt_state = Optimisers.setup(opt, ps)
+    base_lr = cfg.training["learning_rate"]
+    schedule = build_lr_schedule(cfg)
 
     checkpoint_dir = cfg.training["checkpoint_dir"]
     mkpath(checkpoint_dir)
     log_path = cfg.training["log_path"]
     mkpath(dirname(log_path))
+    json_logger = LoggingExtras.FormatLogger(json_formatter, log_path; append = false)
+    logger = LoggingExtras.TeeLogger(json_logger, Logging.current_logger())
+    global_step = 0
+    for epoch in 1:cfg.training["epochs"]
+        shuffled = copy(train_sequences)
+        Random.shuffle!(data_rng, shuffled)
+        st = clone_state(st_template)
+        for batch_tokens in batches(shuffled, cfg.training["batch_size"])
+            batch = prepare_batch(tokenizer, batch_tokens, cfg, data_rng)
+            batch_gpu = (
+                observed = to_device(batch.observed, use_gpu),
+                targets = to_device(batch.targets, use_gpu),
+                mask_matrix = to_device(batch.mask_matrix, use_gpu),
+            )
 
-    open(log_path, "w") do log_io
-        global_step = 0
-        for epoch in 1:cfg.training["epochs"]
-            shuffled = copy(train_sequences)
-            Random.shuffle!(data_rng, shuffled)
-            st = clone_state(st_template)
-            for batch_tokens in batches(shuffled, cfg.training["batch_size"])
-                batch = prepare_batch(tokenizer, batch_tokens, cfg, data_rng)
-                batch_gpu = (
-                    observed = to_device(batch.observed, use_gpu),
-                    targets = to_device(batch.targets, use_gpu),
-                    mask_matrix = to_device(batch.mask_matrix, use_gpu),
-                )
-
-                loss_fn = function (param)
-                    l, _ = perigee_diffusion_loss(model, batch_gpu, param, st)
-                    return l
-                end
-                loss, back = Zygote.pullback(loss_fn, ps)
-                grads = back(1f0)[1]
-                batch_loss, st = perigee_diffusion_loss(model, batch_gpu, ps, st)
-                opt_state, ps = Optimisers.update(opt_state, ps, grads)
-                grad_norm = tree_l2_norm(grads)
-
-                global_step += 1
-                if global_step % 25 == 0
-                    log_entry!(log_io, Dict(
-                        "timestamp" => string(now(UTC)),
-                        "epoch" => epoch,
-                        "step" => global_step,
-                        "loss" => float(batch_loss),
-                        "grad_norm" => grad_norm,
-                        "learning_rate" => cfg.training["learning_rate"],
-                    ))
-                    println("[epoch $(epoch)] step $(global_step) loss = $(round(batch_loss, digits=4))")
-                end
+            loss_fn = function (param)
+                l, _ = perigee_diffusion_loss(model, batch_gpu, param, st)
+                return l
             end
+            loss, back = Zygote.pullback(loss_fn, ps)
+            grads = back(1f0)[1]
+            batch_loss, st = perigee_diffusion_loss(model, batch_gpu, ps, st)
+            global_step += 1
+            lr_current = schedule(global_step)
+            scale_factor = lr_current / base_lr
+            scaled_grads = scale_tree(grads, scale_factor)
+            opt_state, ps = Optimisers.update(opt_state, ps, scaled_grads)
+            grad_norm = tree_l2_norm(scaled_grads)
 
-            val_loss = evaluate(model, tokenizer, val_sequences, cfg, ps, st_template, use_gpu, data_rng)
-            log_entry!(log_io, Dict(
-                "timestamp" => string(now(UTC)),
-                "epoch" => epoch,
-                "phase" => "validation",
-                "loss" => float(val_loss),
-            ))
-            println("Epoch $(epoch) validation loss = $(round(val_loss, digits=4))")
+            if global_step % 25 == 0
+                if !(isfinite(batch_loss) && isfinite(grad_norm))
+                    continue
+                end
+                logged_grad = isfinite(grad_norm) ? grad_norm : missing
+                logged_loss = isfinite(batch_loss) ? float(batch_loss) : missing
+                log_data = Dict(
+                    "timestamp" => string(now(UTC)),
+                    "epoch" => epoch,
+                    "step" => global_step,
+                    "loss" => logged_loss,
+                    "grad_norm" => logged_grad,
+                    "learning_rate" => lr_current,
+                )
+                log_entry!(logger, sanitize_log!(log_data))
+                println("[epoch $(epoch)] step $(global_step) loss = $(round(batch_loss, digits=4)) lr=$(lr_current)")
+            end
         end
+
+        val_loss = evaluate(model, tokenizer, val_sequences, cfg, ps, st_template, use_gpu, data_rng)
+        val_log = Dict(
+            "timestamp" => string(now(UTC)),
+            "epoch" => epoch,
+            "phase" => "validation",
+            "loss" => isfinite(val_loss) ? float(val_loss) : missing,
+        )
+        log_entry!(logger, sanitize_log!(val_log))
+        println("Epoch $(epoch) validation loss = $(round(val_loss, digits=4))")
     end
 
     checkpoint_path = joinpath(checkpoint_dir, cfg.training["checkpoint_name"])

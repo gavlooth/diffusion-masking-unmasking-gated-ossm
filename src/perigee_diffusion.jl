@@ -5,6 +5,9 @@
 # audited or transplanted as a single unit.
 
 import Statistics: mean
+import LossFunctions
+
+const BASE_LOSS = LossFunctions.L2DistLoss()
 
 @inline function _scatter_rngs(rng::Random.AbstractRNG, count::Int)
     return [Random.MersenneTwister(Random.rand(rng, UInt)) for _ in 1:count]
@@ -339,9 +342,15 @@ end
 function perigee_diffusion_loss(model::PerigeeDiffusionLM, batch::NamedTuple, ps, st)
     output, st_new = model(batch.observed, ps, st)
     pred = output.logits
-    residual = pred - batch.targets
-    base_loss = mean(abs2, residual)
-    mask_loss = isempty(batch.mask_matrix) ? 0f0 : mean(abs2, residual .* batch.mask_matrix)
+    base_loss = LossFunctions.mean(BASE_LOSS, pred, batch.targets)
+    mask_weight = sum(batch.mask_matrix)
+    mask_loss = mask_weight == 0 ?
+                0f0 :
+                LossFunctions.mean(
+                    BASE_LOSS,
+                    pred .* batch.mask_matrix,
+                    batch.targets .* batch.mask_matrix,
+                )
     loss = base_loss + 2f0 * mask_loss
     return loss, st_new
 end
