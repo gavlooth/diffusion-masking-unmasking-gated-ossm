@@ -134,6 +134,17 @@ function log_entry!(io, data)
     flush(io)
 end
 
+function build_optimizer(cfg::TrainConfig)
+    lr = cfg.training["learning_rate"]
+    opt_name = get(cfg.training, "optimizer", "adamw")
+    weight_decay = get(cfg.training, "weight_decay", 0.0)
+    if opt_name == "adam"
+        return Optimisers.Adam(lr)
+    else
+        return Optimisers.AdamW(lr, (0.9, 0.999), weight_decay)
+    end
+end
+
 function train()
     config_path = get(ARGS, 1, "configs/perigee_train.toml")
     cfg = load_config(config_path)
@@ -211,7 +222,7 @@ function train()
     st = move_tree(st, mover)
     st_template = clone_state(st)
 
-    opt = Optimisers.AdamW(cfg.training["learning_rate"])
+    opt = build_optimizer(cfg)
     opt_state = Optimisers.setup(opt, ps)
 
     checkpoint_dir = cfg.training["checkpoint_dir"]
