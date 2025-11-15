@@ -2,7 +2,7 @@
 
 julia_version = "1.12.1"
 manifest_format = "2.0"
-project_hash = "853ffb1087849a0ca74397cffcd67bda3e56fa5d"
+project_hash = "82f274b6664247334a0b52879d04e789b4d515ea"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "27cecae79e5cc9935255f90c53bb831cc3c870d7"
@@ -1316,7 +1316,7 @@ uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
 version = "1.64.0+1"
 
 [[deps.ossmv2]]
-deps = ["BSON", "CUDA", "Distributions", "Functors", "HNSW", "JSON3", "KernelAbstractions", "LinearAlgebra", "LoggingExtras", "Lux", "LuxCUDA", "LuxCore", "NNlib", "Optimisers", "Random", "Revise", "Statistics"]
+deps = ["BSON", "CUDA", "Distributions", "Functors", "HNSW", "JSON3", "KernelAbstractions", "LinearAlgebra", "LoggingExtras", "Lux", "LuxCUDA", "LuxCore", "NNlib", "Optimisers", "Random", "Revise", "Statistics", "StatsBase"]
 path = "."
 uuid = "9eba89b0-d2e8-497a-a11b-9a9ee23f45f2"
 version = "0.1.0"

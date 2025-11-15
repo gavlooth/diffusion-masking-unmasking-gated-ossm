@@ -136,11 +136,13 @@ function corrupt_tokens(
         mask_indices = Int[],
         glimpse_indices = Int[],
     )
-    order = Random.randperm(rng, total)
-    selected = order[1:mask_total]
+    selected = sort(StatsBase.sample(rng, 1:total, mask_total; replace = false))
     glimpse_total = clamp(round(Int, unmask_fraction * mask_total), 0, mask_total)
-    glimpse_indices = selected[1:glimpse_total]
-    mask_indices = selected[glimpse_total+1:end]
+    glimpse_indices =
+        glimpse_total == 0 ? Int[] :
+        sort(StatsBase.sample(rng, selected, glimpse_total; replace = false))
+    mask_indices =
+        glimpse_total == 0 ? selected : sort(setdiff(selected, glimpse_indices))
     mask_token = tokenizer.mask_token
     mask_prime = tokenizer.token_to_prime[mask_token]
     corrupted_tokens, corrupted_primes = foldl(

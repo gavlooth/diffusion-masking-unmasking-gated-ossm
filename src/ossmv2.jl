@@ -1,6 +1,6 @@
 module ossmv2
 
-import LuxCore, Lux, Random, NNlib
+import LuxCore, Lux, Random, NNlib, StatsBase
 import LuxCore: initialparameters, initialstates
 import LinearAlgebra               # for LinearAlgebra.Diagonal
 
