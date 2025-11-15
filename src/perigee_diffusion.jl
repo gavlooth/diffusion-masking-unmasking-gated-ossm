@@ -6,6 +6,7 @@
 
 import Statistics: mean
 import LossFunctions
+using Transducers
 
 const BASE_LOSS = LossFunctions.L2DistLoss()
 
@@ -166,14 +167,19 @@ function initialstates(rng::Random.AbstractRNG, block::PerigeeMixerBlock)
 end
 
 function (block::PerigeeMixerBlock)(seq::AbstractMatrix, ps::NamedTuple, st::NamedTuple)
-    x = seq
-    mamba_state_acc = ()
-    for idx in eachindex(block.mamba_layers)
-        x, st_layer =
-            block.mamba_layers[idx](x, ps.mamba_layers[idx], st.mamba_layers[idx])
-        mamba_state_acc = tuple(mamba_state_acc..., st_layer)
-    end
-    mamba_states = mamba_state_acc
+    fold_init = (sequence = seq, states = ())
+    mamba_fold = Transducers.foldl(
+        (acc, idx) -> begin
+            x_curr, state_tuple = acc
+            x_next, st_layer = block.mamba_layers[idx](x_curr, ps.mamba_layers[idx], st.mamba_layers[idx])
+            return (sequence = x_next, states = tuple(state_tuple..., st_layer))
+        end,
+        Transducers.IdentityTransducer(),
+        1:length(block.mamba_layers);
+        init = fold_init,
+    )
+    x = mamba_fold.sequence
+    mamba_states = mamba_fold.states
     attn_in = (seq + x) / 2
     attn_out, st_attn = block.attention(attn_in, ps.attention, st.attention)
     fused = x + attn_out
@@ -239,14 +245,14 @@ function initialstates(rng::Random.AbstractRNG, model::PerigeeDiffusionLM)
 end
 
 function (model::PerigeeDiffusionLM)(seq::AbstractMatrix, ps::NamedTuple, st::NamedTuple)
-    block_indices = eachindex(model.blocks)
     fold_init = (
         sequence = seq,
         diffusion = nothing,
         energy = nothing,
         states = (),
     )
-    folded = foldl(
+    indices = 1:length(model.blocks)
+    folded = Transducers.foldl(
         (acc, idx) -> begin
             block = model.blocks[idx]
             block_out, block_state = block(acc.sequence, ps.blocks[idx], st.blocks[idx])
@@ -263,7 +269,8 @@ function (model::PerigeeDiffusionLM)(seq::AbstractMatrix, ps::NamedTuple, st::Na
                 states = tuple(acc.states..., block_state),
             )
         end,
-        block_indices;
+        Transducers.IdentityTransducer(),
+        indices;
         init = fold_init,
     )
     normed, st_norm = model.final_norm(folded.sequence, ps.final_norm, st.final_norm)

@@ -5,14 +5,15 @@ using Lux
 using LuxCore
 using Functors
 using Random
-using BSON: load
+using WordTokenizers
+using JLD2
 
 import CUDA
 
 using ossmv2: PrimeTokenizer, build_perigee_model, prime_encode
 
 function load_checkpoint(path)
-    return load(path)
+    return JLD2.load(path)
 end
 
 function move_tree(tree, mover)
@@ -30,7 +31,7 @@ end
 function tokenize_prompt(prompt::String)
     stripped = strip(prompt)
     isempty(stripped) && return String[]
-    return split(stripped)
+    return map(lowercase, WordTokenizers.tokenize(stripped))
 end
 
 function load_model(cfg)
@@ -58,7 +59,7 @@ function generate()
     sequence_length = cfg["training"]["sequence_length"]
     model = load_model(cfg)
     checkpoint = load_checkpoint(checkpoint_path)
-    tokenizer = checkpoint[:tokenizer]
+    tokenizer = checkpoint["tokenizer"]
 
     use_gpu = false
     try
@@ -76,8 +77,8 @@ function generate()
     end
     mover = use_gpu ? CUDA.cu : identity
 
-    ps = move_tree(checkpoint[:params], mover)
-    st = move_tree(checkpoint[:states], mover)
+    ps = move_tree(checkpoint["params"], mover)
+    st = move_tree(checkpoint["states"], mover)
 
     prompt_tokens = tokenize_prompt(prompt)
     tokens = fill("[MASK]", sequence_length)

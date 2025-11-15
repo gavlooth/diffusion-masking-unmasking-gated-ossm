@@ -5,7 +5,9 @@ using JSON3
 using Statistics
 using Random
 using Dates
-using BSON: @save
+using JLD2
+using WordTokenizers
+using TensorBoardLogger: TBLogger, log_value
 
 using Lux
 using LuxCore
@@ -35,7 +37,7 @@ end
 function tokenize_line(line::AbstractString)
     stripped = strip(line)
     isempty(stripped) && return String[]
-    return split(stripped)
+    return map(lowercase, WordTokenizers.tokenize(stripped))
 end
 
 function build_vocab(paths::Vector{String}; max_tokens::Int = 50000)
@@ -290,6 +292,12 @@ function train()
     mkpath(dirname(log_path))
     json_logger = LoggingExtras.FormatLogger(json_formatter, log_path; append = false)
     logger = LoggingExtras.TeeLogger(json_logger, Logging.current_logger())
+    tb_logger = nothing
+    if haskey(cfg.training, "tensorboard_dir")
+        tb_dir = cfg.training["tensorboard_dir"]
+        mkpath(tb_dir)
+        tb_logger = TBLogger(tb_dir; mkdir=false)
+    end
     global_step = 0
     for epoch in 1:cfg.training["epochs"]
         shuffled = copy(train_sequences)
@@ -332,6 +340,11 @@ function train()
                     "learning_rate" => lr_current,
                 )
                 log_entry!(logger, sanitize_log!(log_data))
+                if tb_logger !== nothing
+                    log_value(tb_logger, "train/loss", float(batch_loss), global_step)
+                    log_value(tb_logger, "train/grad_norm", grad_norm, global_step)
+                    log_value(tb_logger, "train/lr", lr_current, global_step)
+                end
                 println("[epoch $(epoch)] step $(global_step) loss = $(round(batch_loss, digits=4)) lr=$(lr_current)")
             end
         end
@@ -344,13 +357,24 @@ function train()
             "loss" => isfinite(val_loss) ? float(val_loss) : missing,
         )
         log_entry!(logger, sanitize_log!(val_log))
+        if tb_logger !== nothing && isfinite(val_loss)
+            log_value(tb_logger, "val/loss", float(val_loss), epoch)
+        end
         println("Epoch $(epoch) validation loss = $(round(val_loss, digits=4))")
     end
 
     checkpoint_path = joinpath(checkpoint_dir, cfg.training["checkpoint_name"])
     params = move_tree(ps, Array)
     states = move_tree(st_template, Array)
-    @save checkpoint_path config_path params states tokenizer
+    jldsave(
+        checkpoint_path;
+        config_path = config_path,
+        params = params,
+        states = states,
+        tokenizer = tokenizer,
+    )
+    tb_logger !== nothing && close(tb_logger)
+    tb_logger !== nothing && close(tb_logger)
     println("Checkpoint saved to $(checkpoint_path)")
 end
 

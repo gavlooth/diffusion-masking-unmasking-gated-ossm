@@ -1,6 +1,8 @@
 # Prime codec and tokenizer with partial corruption
 # ───────────────────────────────────────────────────────────────────────────────
 
+using StatsBase: sample
+
 # Mathematical definition:
 # A prime codec assigns each token index i to the i-th prime p_i, yielding an injective
 # map C: {1,…,|V|} → ℕ. Encoding a token sequence τ gives the integer sequence
