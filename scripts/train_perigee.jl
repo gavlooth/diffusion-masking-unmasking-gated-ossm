@@ -4,8 +4,8 @@ using TOML
 using JSON3
 using Statistics
 using Random
-using Serialization
 using Dates
+using BSON: @save
 
 using Lux
 using LuxCore
@@ -277,12 +277,9 @@ function train()
     end
 
     checkpoint_path = joinpath(checkpoint_dir, cfg.training["checkpoint_name"])
-    cpu_ps = move_tree(ps, Array)
-    cpu_st = move_tree(st_template, Array)
-    Serialization.serialize(
-        checkpoint_path,
-        (; config_path = config_path, params = cpu_ps, states = cpu_st, tokenizer = tokenizer),
-    )
+    params = move_tree(ps, Array)
+    states = move_tree(st_template, Array)
+    @save checkpoint_path config_path params states tokenizer
     println("Checkpoint saved to $(checkpoint_path)")
 end
 

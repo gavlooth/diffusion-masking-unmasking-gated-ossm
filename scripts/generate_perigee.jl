@@ -1,18 +1,18 @@
 #!/usr/bin/env -S julia --project
 
 using TOML
-using Serialization
 using Lux
 using LuxCore
 using Functors
 using Random
+using BSON: load
 
 import CUDA
 
 using ossmv2: PrimeTokenizer, build_perigee_model, prime_encode
 
 function load_checkpoint(path)
-    return Serialization.deserialize(path)
+    return load(path)
 end
 
 function move_tree(tree, mover)
