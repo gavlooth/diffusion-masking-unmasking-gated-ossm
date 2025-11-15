@@ -21,6 +21,9 @@ function move_tree(tree, mover)
 end
 
 function nearest_token(tokenizer::PrimeTokenizer, value::Real)
+    if !isfinite(value)
+        return "[nan]"
+    end
     primes = tokenizer.codec.table
     differences = abs.(primes .- round(Int, value))
     idx = argmin(differences)
@@ -32,6 +35,27 @@ function tokenize_prompt(prompt::String)
     stripped = strip(prompt)
     isempty(stripped) && return String[]
     return map(lowercase, WordTokenizers.tokenize(stripped))
+end
+
+simple_bool(str) = lowercase(str) in ("1", "true", "yes", "y", "matrix")
+
+function format_cell(token::AbstractString, prime_val::Int, masked::Bool)
+    printable = all(isprint, token)
+    base = printable ? token : "[p=$(prime_val)]"
+    trimmed = length(base) > 12 ? first(base, 11) * "…" : base
+    cell = rpad(trimmed, 12)
+    return masked ? "*" * cell * "*" : " " * cell * " "
+end
+
+function render_matrix(step::Int, tokens, encoded_vals, tokenizer)
+    masked_positions = Set(findall(==(tokenizer.mask_token), tokens))
+    println("┌ Step $(step) diffusion snapshot" |> String)
+    row = join(
+        (format_cell(tokens[i], encoded_vals[i], i in masked_positions) for i in eachindex(tokens)),
+        "│",
+    )
+    println(row)
+    println("└" * "─" ^ max(length(row) - 1, 1))
 end
 
 function load_model(cfg)
@@ -51,9 +75,10 @@ end
 
 function generate()
     config_path = get(ARGS, 1, "configs/perigee_train.toml")
-    checkpoint_path = get(ARGS, 2, "artifacts/perigee/checkpoints/perigee_epoch1.jls")
+    checkpoint_path = get(ARGS, 2, "artifacts/perigee/checkpoints/perigee_epoch1.jld2")
     prompt = get(ARGS, 3, "Gallia's forces were preparing for the next offensive.")
     steps = parse(Int, get(ARGS, 4, "6"))
+    show_matrix = length(ARGS) >= 5 && simple_bool(ARGS[5])
 
     cfg = TOML.parsefile(config_path)
     sequence_length = cfg["training"]["sequence_length"]
@@ -103,6 +128,10 @@ function generate()
         end
         seq = encode_tokens(tokens)
         seq = use_gpu ? CUDA.asarray(seq) : seq
+        if show_matrix
+            encoded_vals = vec(round.(Int, Array(seq)))
+            render_matrix(step, tokens, encoded_vals, tokenizer)
+        end
     end
 
     println("Prompt: \"$(prompt)\"")
