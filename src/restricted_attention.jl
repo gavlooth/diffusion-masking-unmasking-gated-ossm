@@ -80,8 +80,11 @@ end
 function (layer::RestrictedAttention)(
     x::AbstractMatrix,
     ps::NamedTuple,
-    st::NamedTuple,
+    st::NamedTuple;
+    radius_override::Union{Nothing,Int}=nothing,
 )
+    radius = isnothing(radius_override) ? layer.window_radius : radius_override
+    radius < 0 && throw(ArgumentError("window radius must be non-negative"))
     q_proj, st_q = layer.q_proj(x, ps.q_proj, st.q_proj)
     k_proj, st_k = layer.k_proj(x, ps.k_proj, st.k_proj)
     v_proj, st_v = layer.v_proj(x, ps.v_proj, st.v_proj)
@@ -97,7 +100,7 @@ function (layer::RestrictedAttention)(
                 q_h,
                 k_h,
                 v_h,
-                layer.window_radius,
+                radius,
             )
             return tensor
         end,

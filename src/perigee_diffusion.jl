@@ -11,12 +11,7 @@ import Statistics: mean
 end
 
 struct SqrtWindowAttention <: Lux.AbstractLuxLayer
-    q_proj::Lux.Dense
-    k_proj::Lux.Dense
-    v_proj::Lux.Dense
-    out_proj::Lux.Dense
-    num_heads::Int
-    head_dim::Int
+    attention::RestrictedAttention
     radius_factor::Float32
     min_radius::Int
     max_radius::Int
@@ -29,76 +24,62 @@ function SqrtWindowAttention(
     min_radius::Int = 1,
     max_radius::Union{Int,Nothing} = nothing,
 )
-    model_dim % num_heads == 0 ||
-        throw(ArgumentError("model_dim must be divisible by num_heads"))
-    head_dim = div(model_dim, num_heads)
-    max_radius_val = isnothing(max_radius) ? typemax(Int) : max_radius
     radius_factor <= 0 && throw(ArgumentError("radius_factor must be positive"))
-    return SqrtWindowAttention(
-        Lux.Dense(model_dim, model_dim),
-        Lux.Dense(model_dim, model_dim),
-        Lux.Dense(model_dim, model_dim),
-        Lux.Dense(model_dim, model_dim),
-        num_heads,
-        head_dim,
-        Float32(radius_factor),
-        max(1, min_radius),
-        max_radius_val,
-    )
+    min_r = max(1, min_radius)
+    max_r = isnothing(max_radius) ? typemax(Int) : max_radius
+    base = RestrictedAttention(model_dim, num_heads, min_r)
+    return SqrtWindowAttention(base, Float32(radius_factor), min_r, max_r)
 end
 
-function initialparameters(rng::Random.AbstractRNG, layer::SqrtWindowAttention)
-    rngs = scatter_rngs(rng, 4)
-    return (
-        q_proj = Lux.initialparameters(rngs[1], layer.q_proj),
-        k_proj = Lux.initialparameters(rngs[2], layer.k_proj),
-        v_proj = Lux.initialparameters(rngs[3], layer.v_proj),
-        out_proj = Lux.initialparameters(rngs[4], layer.out_proj),
-    )
-end
+initialparameters(rng::Random.AbstractRNG, layer::SqrtWindowAttention) =
+    initialparameters(rng, layer.attention)
 
-function initialstates(rng::Random.AbstractRNG, layer::SqrtWindowAttention)
-    rngs = scatter_rngs(rng, 4)
-    return (
-        q_proj = Lux.initialstates(rngs[1], layer.q_proj),
-        k_proj = Lux.initialstates(rngs[2], layer.k_proj),
-        v_proj = Lux.initialstates(rngs[3], layer.v_proj),
-        out_proj = Lux.initialstates(rngs[4], layer.out_proj),
-        radius = 0,
-    )
-end
+initialstates(rng::Random.AbstractRNG, layer::SqrtWindowAttention) =
+    initialstates(rng, layer.attention)
 
-@inline function _reshape_heads(x::AbstractMatrix, head_dim::Int, num_heads::Int)
-    return reshape(x, head_dim, num_heads, size(x, 2))
-end
-
-function (layer::SqrtWindowAttention)(x::AbstractMatrix, ps::NamedTuple, st::NamedTuple)
-    q_proj, st_q = layer.q_proj(x, ps.q_proj, st.q_proj)
-    k_proj, st_k = layer.k_proj(x, ps.k_proj, st.k_proj)
-    v_proj, st_v = layer.v_proj(x, ps.v_proj, st.v_proj)
-    heads_q = _reshape_heads(q_proj, layer.head_dim, layer.num_heads)
-    heads_k = _reshape_heads(k_proj, layer.head_dim, layer.num_heads)
-    heads_v = _reshape_heads(v_proj, layer.head_dim, layer.num_heads)
+function (layer::SqrtWindowAttention)(
+    x::AbstractMatrix,
+    ps::NamedTuple,
+    st::NamedTuple,
+)
+    attn = layer.attention
+    q_proj, st_q = attn.q_proj(x, ps.q_proj, st.q_proj)
+    k_proj, st_k = attn.k_proj(x, ps.k_proj, st.k_proj)
+    v_proj, st_v = attn.v_proj(x, ps.v_proj, st.v_proj)
+    heads_q = reshape_heads(q_proj, attn.head_dim, attn.num_heads)
+    heads_k = reshape_heads(k_proj, attn.head_dim, attn.num_heads)
+    heads_v = reshape_heads(v_proj, attn.head_dim, attn.num_heads)
     time_steps = size(x, 2)
     radius = clamp(
         Int(ceil(layer.radius_factor * sqrt(Float32(time_steps)))),
         layer.min_radius,
         layer.max_radius,
     )
-    slices = map(1:layer.num_heads) do head_idx
+    slices = map(1:attn.num_heads) do head_idx
         q_h = selectdim(heads_q, 2, head_idx)
         k_h = selectdim(heads_k, 2, head_idx)
         v_h = selectdim(heads_v, 2, head_idx)
         restricted_head_attention(q_h, k_h, v_h, radius)
     end
-    context_stack = cat(slices...; dims = 3)     # (head_dim, T, num_heads)
+    context_stack = cat(slices...; dims = 3)
     context = permutedims(context_stack, (1, 3, 2))
-    merged = reshape(context, layer.head_dim * layer.num_heads, time_steps)
-    out, st_out = layer.out_proj(merged, ps.out_proj, st.out_proj)
+    merged = reshape(context, attn.head_dim * attn.num_heads, time_steps)
+    out, st_out = attn.out_proj(merged, ps.out_proj, st.out_proj)
     return out,
-    (q_proj = st_q, k_proj = st_k, v_proj = st_v, out_proj = st_out, radius = radius)
+    (
+        q_proj = st_q,
+        k_proj = st_k,
+        v_proj = st_v,
+        out_proj = st_out,
+    )
 end
 
+# -----------------------------------------------------------------------------
+# Perigee mixer block: stack of OscMamba mixers with adaptive local attention
+# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Perigee mixer block: stack of OscMamba mixers with adaptive local attention
+# -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
 # Perigee mixer block: stack of OscMamba mixers with adaptive local attention
 # -----------------------------------------------------------------------------
