@@ -125,7 +125,7 @@ function initialparameters(rng::Random.AbstractRNG, block::PerigeeMixerBlock)
     rngs = _scatter_rngs(rng, rng_total)
     mamba_ps = map(eachindex(block.mamba_layers)) do idx
         initialparameters(rngs[idx], block.mamba_layers[idx])
-    end
+    end |> Tuple
     attn_ps = initialparameters(rngs[end-3], block.attention)
     fusion_norm = Lux.initialparameters(rngs[end-2], block.fusion_norm)
     diffusion_proj = Lux.initialparameters(rngs[end-1], block.diffusion_proj)
@@ -144,7 +144,7 @@ function initialstates(rng::Random.AbstractRNG, block::PerigeeMixerBlock)
     rngs = _scatter_rngs(rng, rng_total)
     mamba_st = map(eachindex(block.mamba_layers)) do idx
         initialstates(rngs[idx], block.mamba_layers[idx])
-    end
+    end |> Tuple
     attn_st = initialstates(rngs[end-3], block.attention)
     fusion_norm = Lux.initialstates(rngs[end-2], block.fusion_norm)
     diffusion_proj = Lux.initialstates(rngs[end-1], block.diffusion_proj)
@@ -166,7 +166,7 @@ function (block::PerigeeMixerBlock)(seq::AbstractMatrix, ps::NamedTuple, st::Nam
             block.mamba_layers[idx](x, ps.mamba_layers[idx], st.mamba_layers[idx])
         mamba_state_acc = tuple(mamba_state_acc..., st_layer)
     end
-    mamba_states = collect(mamba_state_acc)
+    mamba_states = mamba_state_acc
     attn_in = (seq + x) / 2
     attn_out, st_attn = block.attention(attn_in, ps.attention, st.attention)
     fused = x + attn_out
@@ -211,7 +211,7 @@ function initialparameters(rng::Random.AbstractRNG, model::PerigeeDiffusionLM)
     block_ps = map(model.blocks) do block
         block_rng = Random.MersenneTwister(Random.rand(rng, UInt))
         initialparameters(block_rng, block)
-    end
+    end |> Tuple
     final_norm = Lux.initialparameters(rng, model.final_norm)
     vocab_proj = Lux.initialparameters(
         Random.MersenneTwister(Random.rand(rng, UInt)),
@@ -224,7 +224,7 @@ function initialstates(rng::Random.AbstractRNG, model::PerigeeDiffusionLM)
     block_st = map(model.blocks) do block
         block_rng = Random.MersenneTwister(Random.rand(rng, UInt))
         initialstates(block_rng, block)
-    end
+    end |> Tuple
     final_norm = Lux.initialstates(rng, model.final_norm)
     vocab_proj =
         Lux.initialstates(Random.MersenneTwister(Random.rand(rng, UInt)), model.vocab_proj)
@@ -266,7 +266,7 @@ function (model::PerigeeDiffusionLM)(seq::AbstractMatrix, ps::NamedTuple, st::Na
     energy_total = folded.energy === nothing ?
                    zeros(Float32, 1, size(normed, 2)) :
                    folded.energy
-    block_states = collect(folded.states)
+    block_states = folded.states
     return (logits = logits, diffusion = diffusion_total, energy = energy_total),
     (blocks = block_states, final_norm = st_norm, vocab_proj = st_vocab)
 end
