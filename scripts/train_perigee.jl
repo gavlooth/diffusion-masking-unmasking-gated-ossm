@@ -150,7 +150,6 @@ function train()
     cfg = load_config(config_path)
     vocab = load_or_build_vocab(cfg)
     sequence_length = cfg.training["sequence_length"]
-    sequence_length == cfg.model["model_dim"] || error("sequence_length must match model_dim for the current pipeline")
 
     println("Loaded vocab of $(length(vocab)) tokens")
     train_raw = load_sequences(
@@ -207,6 +206,7 @@ function train()
 
     model = build_perigee_model(
         cfg.model["num_layers"];
+        input_dim = sequence_length,
         model_dim = cfg.model["model_dim"],
         oscillator_count = cfg.model["oscillator_count"],
         num_heads = cfg.model["num_heads"],

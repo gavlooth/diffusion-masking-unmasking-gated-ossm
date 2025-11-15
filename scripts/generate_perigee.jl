@@ -36,6 +36,7 @@ end
 function load_model(cfg)
     return build_perigee_model(
         cfg["model"]["num_layers"];
+        input_dim = cfg["training"]["sequence_length"],
         model_dim = cfg["model"]["model_dim"],
         oscillator_count = cfg["model"]["oscillator_count"],
         num_heads = cfg["model"]["num_heads"],

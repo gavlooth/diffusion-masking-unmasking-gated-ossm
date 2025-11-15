@@ -97,13 +97,17 @@ function PerigeeMixerBlock(
     model_dim::Int,
     oscillator_count::Int,
     num_heads::Int;
+    first_input_dim::Union{Nothing,Int}=nothing,
     radius_factor::Real = 4.0,
     min_radius::Int = 1,
     max_radius::Union{Int,Nothing} = nothing,
 )
     mamba_repeat > 0 || throw(ArgumentError("mamba_repeat must be positive"))
-    mamba_layers =
-        [OscMambaMixer(model_dim, model_dim, oscillator_count) for _ = 1:mamba_repeat]
+    first_dim = isnothing(first_input_dim) ? model_dim : first_input_dim
+    dims = [idx == 1 ? first_dim : model_dim for idx in 1:mamba_repeat]
+    mamba_layers = [
+        OscMambaMixer(dims[idx], model_dim, oscillator_count) for idx = 1:mamba_repeat
+    ]
     attn = SqrtWindowAttention(
         model_dim,
         num_heads;
@@ -273,6 +277,7 @@ end
 
 function build_perigee_model(
     num_layers::Int;
+    input_dim::Int,
     model_dim::Int,
     oscillator_count::Int,
     num_heads::Int,
@@ -289,10 +294,11 @@ function build_perigee_model(
             model_dim,
             oscillator_count,
             num_heads;
+            first_input_dim = idx == 1 ? input_dim : nothing,
             radius_factor = radius_factor,
             min_radius = min_radius,
             max_radius = max_radius,
-        ) for _ = 1:num_layers
+        ) for idx = 1:num_layers
     ]
     return PerigeeDiffusionLM(blocks, model_dim, vocab_dim)
 end
