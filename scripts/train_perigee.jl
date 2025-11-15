@@ -16,7 +16,7 @@ using Logging
 
 import CUDA
 
-using ossmv2: PrimeTokenizer, perigee_prepare_batch, perigee_diffusion_loss, build_perigee_model
+using ossmv2: PrimeTokenizer, perigee_prepare_batch, perigee_diffusion_loss, build_perigee_model, prime_samples
 
 const SPECIAL_TOKENS = ["[PAD]", "[MASK]", "[UNK]", "[BOS]", "[EOS]"]
 
@@ -101,7 +101,7 @@ function load_sequences(path::String; seq_len::Int, stride::Int, max_sequences::
     return sequences
 end
 
-function batches(data::Vector{Vector{String}}, batch_size::Int)
+function batches(data::Vector, batch_size::Int)
     return [data[i:min(i + batch_size - 1, length(data))] for i in 1:batch_size:length(data)]
 end
 
@@ -142,21 +142,24 @@ function train()
     sequence_length == cfg.model["model_dim"] || error("sequence_length must match model_dim for the current pipeline")
 
     println("Loaded vocab of $(length(vocab)) tokens")
-    train_sequences = load_sequences(
+    train_raw = load_sequences(
         cfg.training["train_path"];
         seq_len = sequence_length,
         stride = cfg.training["stride"],
         max_sequences = cfg.training["max_sequences"],
     )
-    val_sequences = load_sequences(
+    val_raw = load_sequences(
         cfg.training["val_path"];
         seq_len = sequence_length,
         stride = cfg.training["stride"],
         max_sequences = min(512, cfg.training["max_sequences"]),
     )
-    println("Loaded $(length(train_sequences)) training sequences and $(length(val_sequences)) validation sequences")
-
     tokenizer = PrimeTokenizer(vocab)
+    train_sequences = prime_samples(tokenizer, train_raw)
+    val_sequences = prime_samples(tokenizer, val_raw)
+    println(
+        "Loaded $(length(train_sequences)) training samples and $(length(val_sequences)) validation samples",
+    )
     seed = cfg.training["seed"]
     data_rng = Random.MersenneTwister(seed)
     model_rng = Random.default_rng()

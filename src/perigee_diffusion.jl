@@ -303,22 +303,23 @@ end
 
 function perigee_prepare_batch(
     tokenizer::PrimeTokenizer,
-    sequences::Vector{<:AbstractVector{<:AbstractString}};
+    sequences::Vector;
     mask_fraction::Real = 0.15,
     unmask_fraction::Real = 0.2,
     rng::Random.AbstractRNG = Random.default_rng(),
 )
-    masked = map(sequences) do tokens
+    masked = map(sequences) do sample
+        tokens = sample isa PrimeSample ? sample.tokens : sample
         corrupt_tokens(
             tokenizer,
-            tokens;
+            sample;
             mask_fraction = mask_fraction,
             unmask_fraction = unmask_fraction,
             rng = rng,
         )
     end
     obs = hcat(map(x -> Float32.(x.encoded), masked)...)
-    targets = hcat(map(x -> Float32.(prime_encode(tokenizer, x.tokens)), masked)...)
+    targets = hcat(map(x -> Float32.(x.targets), masked)...)
     mask_positions = collect(Iterators.flatten(getindex.(masked, :mask_indices)))
     return (observed = obs, targets = targets, mask_positions = mask_positions)
 end

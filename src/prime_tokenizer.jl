@@ -103,15 +103,32 @@ function prime_decode(tokenizer::PrimeTokenizer, codes::AbstractVector{<:Integer
     return map(code -> get(tokenizer.prime_to_token, Int(code), tokenizer.mask_token), codes)
 end
 
+struct PrimeSample{T<:AbstractString}
+    tokens::Vector{T}
+    encoded::Vector{Int}
+end
+
+function prime_samples(
+    tokenizer::PrimeTokenizer,
+    sequences::Vector{<:AbstractVector{<:AbstractString}},
+)
+    return map(sequences) do tokens
+        PrimeSample(collect(tokens), prime_encode(tokenizer, tokens))
+    end
+end
+
 function corrupt_tokens(
     tokenizer::PrimeTokenizer,
-    tokens::AbstractVector{<:AbstractString};
+    tokens_or_sample;
     mask_fraction::Real = 0.15,
     unmask_fraction::Real = 0.2,
     rng::Random.AbstractRNG = Random.default_rng(),
 )
+    tokens = tokens_or_sample isa PrimeSample ? tokens_or_sample.tokens : tokens_or_sample
+    encoded_source =
+        tokens_or_sample isa PrimeSample ? tokens_or_sample.encoded : prime_encode(tokenizer, tokens)
     total = length(tokens)
-    encoded = prime_encode(tokenizer, tokens)
+    encoded = copy(encoded_source)
     mask_total = clamp(round(Int, mask_fraction * total), 0, total)
     mask_total == 0 && return (
         tokens = collect(tokens),
@@ -147,6 +164,7 @@ function corrupt_tokens(
     return (
         tokens = final_tokens,
         encoded = corrupted_primes,
+        targets = encoded_source,
         mask_indices = sort(mask_indices),
         glimpse_indices = sort(glimpse_indices),
     )
