@@ -9,8 +9,8 @@ min_radius = 24
 max_radius = 192
 
 [training]
-train_path = "data_sets/pg19.train.raw"
-val_path = "data_sets/pg19.valid.raw"
+train_path = "data_sets/unified.train.raw"
+val_path = "data_sets/unified.valid.raw"
 sequence_length = 1024
 stride = 1024
 max_sequences = 4096

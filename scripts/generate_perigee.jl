@@ -91,10 +91,14 @@ function render_live(columns, prev_columns, mask_indices, obfuscate::Bool)
     end
 end
 
-function record_frame(io::IO, step::Int, columns)
+function capture_frame(columns)
+    return ["[column $(col_idx)] " * join(col, " ") for (col_idx, col) in enumerate(columns)]
+end
+
+function record_frame(io::IO, step::Int, frame_lines)
     println(io, "Step $(step)")
-    for (col_idx, col) in enumerate(columns)
-        println(io, "[column $(col_idx)] " * join(col, " "))
+    for line in frame_lines
+        println(io, line)
     end
     println(io)
 end
@@ -156,7 +160,10 @@ function generate()
     live_mode = render_flag == "live"
     batch_size = length(ARGS) >= 6 ? parse(Int, ARGS[6]) : 1
     record_path = length(ARGS) >= 7 ? strip(ARGS[7]) : ""
+    gif_path = length(ARGS) >= 8 ? strip(ARGS[8]) : ""
     record_io = record_path == "" ? nothing : open(record_path, "w")
+    record_gif = gif_path != ""
+    gif_frames = Vector{Vector{String}}()
     obfuscate = true
 
     cfg = TOML.parsefile(config_path)
@@ -240,18 +247,21 @@ function generate()
             preds = Array(output.logits)
             for (col_idx, col_tokens) in enumerate(token_columns)
                 col_preds = preds[:, col_idx]
-            for idx in mask_indices
-                raw = clamp(col_preds[idx] * norm_factor, min_prime, max_prime)
-                col_tokens[idx] = nearest_token(tokenizer, raw)
+                for idx in mask_indices
+                    raw = clamp(col_preds[idx] * norm_factor, min_prime, max_prime)
+                    col_tokens[idx] = nearest_token(tokenizer, raw)
+                end
             end
-        end
+            frame_lines = nothing
+            if record_io !== nothing || record_gif
+                frame_lines = capture_frame(token_columns)
+                record_io !== nothing && record_frame(record_io, step, frame_lines)
+                record_gif && push!(gif_frames, frame_lines)
+            end
             if live_mode
                 render_live(token_columns, prev_columns, mask_indices, obfuscate)
             elseif show_matrix
                 render_inline(step, token_columns, prev_columns, mask_indices, obfuscate)
-            end
-            if record_io !== nothing
-                record_frame(record_io, step, token_columns)
             end
             prev_columns = deepcopy(token_columns)
             seq = encode_tokens_matrix(token_columns)
@@ -259,6 +269,12 @@ function generate()
         end
     finally
         record_io !== nothing && close(record_io)
+    end
+
+    if record_gif && !isempty(gif_frames)
+        mkpath(dirname(gif_path))
+        save_gif(gif_path, gif_frames)
+        println("Saved diffusion GIF to $(gif_path)")
     end
 
     println("Prompt: \"$(prompt)\"")
@@ -270,6 +286,92 @@ function generate()
             println("[column $(idx)] " * join(col, " "))
         end
     end
+end
+
+function save_gif(path::AbstractString, frames::Vector{Vector{String}})
+    isempty(frames) && return
+    project_root = normpath(joinpath(@__DIR__, ".."))
+    python = ensure_python(project_root)
+    frame_file = tempname()
+    sentinel = "<<FRAME>>"
+    open(frame_file, "w") do frame_io
+        for frame in frames
+            for line in frame
+                println(frame_io, line)
+            end
+            println(frame_io, sentinel)
+        end
+    end
+    frame_file_esc = replace(frame_file, "\\" => "\\\\", "\"" => "\\\"")
+    out_esc = replace(path, "\\" => "\\\\", "\"" => "\\\"")
+    script = replace("""
+import sys
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
+import textwrap
+src = Path(r"%FRAME_FILE%")
+sentinel = "<<FRAME>>"
+frames = []
+block = []
+with src.open('r', encoding='utf-8') as fh:
+    for raw in fh:
+        line = raw.rstrip('\\n')
+        if line == sentinel:
+            if block:
+                frames.append(block)
+                block = []
+        else:
+            block.append(line)
+if block:
+    frames.append(block)
+if not frames:
+    sys.exit(0)
+wrap_width = 160
+wrapped_frames = []
+for frame in frames:
+    wrapped = []
+    for line in frame:
+        chunks = textwrap.wrap(line, width=wrap_width, break_long_words=False, replace_whitespace=False)
+        if not chunks:
+            chunks = [""]
+        wrapped.extend(chunks)
+    wrapped_frames.append(wrapped)
+frames = wrapped_frames
+font = ImageFont.load_default()
+char_w, char_h = font.getbbox('M')[2], font.getbbox('M')[3]
+width = max(len(line) for frame in frames for line in frame) * char_w + 20
+height = len(frames[0]) * (char_h + 4) + 20
+images = []
+for frame in frames:
+    img = Image.new('RGB', (width, height), color='black')
+    draw = ImageDraw.Draw(img)
+    y = 10
+    for line in frame:
+        draw.text((10, y), line, fill=(0, 255, 0), font=font)
+        y += char_h + 4
+    images.append(img)
+images[0].save(r"%OUT%", save_all=True, append_images=images[1:], duration=200, loop=0)
+""" , "%FRAME_FILE%" => frame_file_esc, "%OUT%" => out_esc)
+    py_file = tempname() * ".py"
+    open(py_file, "w") do py_io
+        write(py_io, script)
+    end
+    try
+        run(`$python $py_file`)
+    finally
+        rm(py_file, force=true)
+        rm(frame_file, force=true)
+    end
+end
+
+function ensure_python(root::String)
+    venv_dir = joinpath(root, ".venv")
+    python_path = joinpath(venv_dir, "bin", "python")
+    if !isfile(python_path)
+        run(`python3 -m venv $venv_dir`)
+    end
+    run(`bash -lc ". $venv_dir/bin/activate && pip install -q pillow"`)
+    return python_path
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

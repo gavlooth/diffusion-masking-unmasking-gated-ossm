@@ -4,7 +4,7 @@ This folder records the artifacts produced by the Perigee diffusion language mod
 pipeline introduced in `scripts/train_perigee.jl` and `scripts/generate_perigee.jl`.
 
 ## Training summary
-- **Dataset**: `data_sets/pg19.train.raw` (Project Gutenberg 19th-century novels, first 4,096 windowed sequences of 1,024 tokens).
+- **Dataset**: `data_sets/unified.train.raw` (balanced 50/50 mix of PG-19 and OpenWebText2 samples, each normalized to single-line documents).
 - **Vocabulary**: word-level tokens derived from the training corpus and stored in
   `perigee_vocab.json` (50,000 entries plus the special markers `[PAD]`, `[MASK]`,
   `[UNK]`, `[BOS]`, `[EOS]`).
@@ -23,6 +23,26 @@ pipeline introduced in `scripts/train_perigee.jl` and `scripts/generate_perigee.
 - **Outputs**:
   - Checkpoint: `checkpoints/perigee_epoch1.jls` (contains parameters, states, tokenizer).
   - Log: `logs/training_log.jsonl` (JSONL records of every 25th step + validation loss).
+
+### Data preparation
+All corpora live under `data_sets/`. Recreate them with:
+
+```bash
+# 1) PG-19 shards → compact .raw (DuckDB)
+source .venv-data/bin/activate
+python scripts/build_pg19_sample.py \
+  --root /mnt/exfat-data/Downloads/pg19/data \
+  --train-limit 2000 --valid-limit 200 --test-limit 200
+
+# 2) Stream OpenWebText2 tarball → .raw (HTTP + zstd)
+python scripts/build_openwebtext2_sample.py \
+  --train-count 2000 --val-count 200 --test-count 200
+
+# 3) Interleave both corpora → unified.{train,valid,test}.raw
+python scripts/build_unified_corpus.py
+```
+
+`build_openwebtext2_sample.py` streams the Hugging Face tarball on-the-fly, so it only downloads the bytes required for the requested counts.
 
 ## Smoke Test
 - Config: `configs/perigee_smoke.toml` (layers halved, 64-token windows, 64 sequences).
@@ -51,6 +71,20 @@ pipeline introduced in `scripts/train_perigee.jl` and `scripts/generate_perigee.
   Gallia prepares [PAD] [PAD] [MASK] [PAD] ...
   ```
   The sequence is intentionally short because the model only saw a single epoch.
+
+### Diffusion viewing modes
+`./scripts/generate_perigee.jl` now accepts:
+
+```
+./scripts/generate_perigee.jl <config> <checkpoint> "<prompt>" <steps> [matrix|live] [batch] [frames.txt] [gif.gif]
+```
+
+- `matrix`: prints side-by-side columns each step; masked slots emit `[???]` and changed tokens glow green.
+- `live`: rewrites the same terminal rows in-place for the "Matrix rain" effect.
+- `frames.txt`: optional plaintext log (one block per step).
+- `gif.gif`: optional animated GIF assembled via Pillow inside `.venv`.
+
+Batch inference is now the 6th positional argument (default `1`).
 
 ## Reproducibility checklist
 1. `julia --project -e 'using Pkg; Pkg.instantiate()'`
