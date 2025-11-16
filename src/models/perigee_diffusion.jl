@@ -17,7 +17,7 @@ end
 
 
 @inline function _scatter_rngs(rng::Random.AbstractRNG, count::Int)
-    return [Random.MersenneTwister(Random.rand(rng, UInt)) for _ in 1:count]
+    return [Random.MersenneTwister(Random.rand(rng, UInt)) for _ = 1:count]
 end
 
 # -----------------------------------------------------------------------------
@@ -47,14 +47,15 @@ function PerigeeMixerBlock(
     max_radius::Union{Int,Nothing} = nothing,
 )
     mamba_repeat > 0 || throw(ArgumentError("mamba_repeat must be positive"))
-    mamba_layers = [OscMambaMixer(model_dim, model_dim, oscillator_count) for _ in 1:mamba_repeat]
+    mamba_layers =
+        [OscMambaMixer(model_dim, model_dim, oscillator_count) for _ = 1:mamba_repeat]
     transformer = LogWindowTransformer(
         model_dim,
         num_heads;
         radius_factor = radius_factor,
         min_radius = min_radius,
         max_radius = max_radius,
-        base_radius = 24,
+        base_radius = 32,
     )
     return PerigeeMixerBlock(
         mamba_layers,
@@ -103,7 +104,11 @@ function (block::PerigeeMixerBlock)(seq::AbstractMatrix, ps::NamedTuple, st::Nam
     mamba_fold = Transducers.foldl(
         (acc, idx) -> begin
             x_curr, state_tuple = acc
-            x_next, st_layer = block.mamba_layers[idx](x_curr, ps.mamba_layers[idx], st.mamba_layers[idx])
+            x_next, st_layer = block.mamba_layers[idx](
+                x_curr,
+                ps.mamba_layers[idx],
+                st.mamba_layers[idx],
+            )
             return (sequence = x_next, states = tuple(state_tuple..., st_layer))
         end,
         Transducers.IdentityTransducer(),
@@ -181,24 +186,26 @@ function initialstates(rng::Random.AbstractRNG, model::PerigeeDiffusionLM)
     vocab_proj =
         Lux.initialstates(Random.MersenneTwister(Random.rand(rng, UInt)), model.vocab_proj)
     input_embed = Lux.initialstates(rng, model.input_embed)
-    return (input_embed = input_embed, blocks = block_st, final_norm = final_norm, vocab_proj = vocab_proj)
+    return (
+        input_embed = input_embed,
+        blocks = block_st,
+        final_norm = final_norm,
+        vocab_proj = vocab_proj,
+    )
 end
 
 function (model::PerigeeDiffusionLM)(seq::AbstractMatrix, ps::NamedTuple, st::NamedTuple)
     embedded, st_embed = model.input_embed(seq, ps.input_embed, st.input_embed)
-    fold_init = (
-        sequence = embedded,
-        diffusion = nothing,
-        states = (),
-    )
+    fold_init = (sequence = embedded, diffusion = nothing, states = ())
     indices = 1:length(model.blocks)
     folded = Transducers.foldl(
         (acc, idx) -> begin
             block = model.blocks[idx]
-            block_out, block_state = block(acc.sequence, ps.blocks[idx], st.blocks[idx])
-            next_diffusion = acc.diffusion === nothing ?
-                             block_out.diffusion :
-                             acc.diffusion + block_out.diffusion
+            block_out, block_state =
+                block(acc.sequence, ps.blocks[idx], st.blocks[idx])
+            next_diffusion =
+                acc.diffusion === nothing ? block_out.diffusion :
+                acc.diffusion + block_out.diffusion
             return (
                 sequence = block_out.sequence,
                 diffusion = next_diffusion,
@@ -215,7 +222,12 @@ function (model::PerigeeDiffusionLM)(seq::AbstractMatrix, ps::NamedTuple, st::Na
         folded.diffusion === nothing ? zeros(Float32, size(normed)) : folded.diffusion
     block_states = folded.states
     return (logits = logits, diffusion = diffusion_total),
-    (input_embed = st_embed, blocks = block_states, final_norm = st_norm, vocab_proj = st_vocab)
+    (
+        input_embed = st_embed,
+        blocks = block_states,
+        final_norm = st_norm,
+        vocab_proj = st_vocab,
+    )
 end
 
 function build_perigee_model(
@@ -272,7 +284,7 @@ function perigee_prepare_batch(
     mask_matrix = zeros(Float32, size(obs, 1), length(masked))
     for (col, item) in enumerate(masked)
         for idx in item.mask_indices
-            mask_matrix[idx, col] = 1f0
+            mask_matrix[idx, col] = 1.0f0
         end
     end
     return (observed = obs, targets = targets, mask_matrix = mask_matrix)
@@ -283,10 +295,10 @@ function perigee_diffusion_loss(model::PerigeeDiffusionLM, batch::NamedTuple, ps
     pred = output.logits
     base_loss = mse_mean(pred, batch.targets)
     mask_weight = sum(batch.mask_matrix)
-    mask_loss = mask_weight == 0 ?
-                0f0 :
-                mse_mean(pred .* batch.mask_matrix, batch.targets .* batch.mask_matrix)
-    loss = base_loss + 2f0 * mask_loss
+    mask_loss =
+        mask_weight == 0 ? 0.0f0 :
+        mse_mean(pred .* batch.mask_matrix, batch.targets .* batch.mask_matrix)
+    loss = base_loss + 2.0f0 * mask_loss
     return loss, st_new
 end
 

@@ -12,6 +12,25 @@ import CUDA
 
 using ossmv2: PrimeTokenizer, build_perigee_model, prime_encode, prime_scale
 
+
+function apply_model_overrides!(cfg::Dict{String,Any})
+    model = cfg["model"]
+    maybe_override!(model, "num_layers", "PERIGEE_NUM_LAYERS")
+    maybe_override!(model, "num_heads", "PERIGEE_NUM_HEADS")
+    maybe_override!(model, "oscillator_count", "PERIGEE_OSCILLATOR_COUNT")
+    return cfg
+end
+
+function maybe_override!(dict::Dict{String,Any}, key::String, env_name::String)
+    env_val = get(ENV, env_name, "")
+    isempty(env_val) && return
+    try
+        dict[key] = parse(Int, env_val)
+    catch err
+        @warn "Failed to parse override" env = env_name value = env_val error = err
+    end
+end
+
 function load_checkpoint(path)
     return JLD2.load(path)
 end
@@ -167,6 +186,7 @@ function generate()
     obfuscate = true
 
     cfg = TOML.parsefile(config_path)
+    apply_model_overrides!(cfg)
     checkpoint_info = resolve_checkpoint_path(cfg, checkpoint_override)
     checkpoint_path = checkpoint_info.path
     if !isfile(checkpoint_path)

@@ -25,6 +25,8 @@ using ossmv2: PrimeTokenizer, perigee_prepare_batch, perigee_diffusion_loss, bui
 
 const SPECIAL_TOKENS = ["[PAD]", "[MASK]", "[UNK]", "[BOS]", "[EOS]"]
 
+simple_bool(str) = lowercase(str) in ("1", "true", "yes", "y")
+
 struct TrainConfig
     model::Dict{String, Any}
     training::Dict{String, Any}
@@ -32,8 +34,29 @@ end
 
 function load_config(path::String)
     cfg = TOML.parsefile(path)
+    apply_model_overrides!(cfg)
     return TrainConfig(cfg["model"], cfg["training"])
 end
+
+function apply_model_overrides!(cfg::Dict{String,Any})
+    model = cfg["model"]
+    maybe_override!(model, "num_layers", "PERIGEE_NUM_LAYERS")
+    maybe_override!(model, "num_heads", "PERIGEE_NUM_HEADS")
+    maybe_override!(model, "oscillator_count", "PERIGEE_OSCILLATOR_COUNT")
+    return cfg
+end
+
+function maybe_override!(dict::Dict{String,Any}, key::String, env_name::String)
+    env_val = get(ENV, env_name, "")
+    isempty(env_val) && return
+    try
+        dict[key] = parse(Int, env_val)
+    catch err
+        @warn "Failed to parse override" env = env_name value = env_val error = err
+    end
+end
+
+should_resume() = simple_bool(get(ENV, "PERIGEE_RESUME", ""))
 
 function tokenize_line(line::AbstractString)
     stripped = strip(line)
@@ -229,6 +252,30 @@ function build_optimizer(cfg::TrainConfig)
     end
 end
 
+function save_training_state(
+    path::AbstractString;
+    config_path::AbstractString,
+    params,
+    states,
+    opt_state,
+    global_step::Int,
+    epoch::Int,
+    data_rng,
+    tokenizer,
+)
+    payload = Dict(
+        "config_path" => config_path,
+        "params" => move_tree(params, Array),
+        "states" => move_tree(states, Array),
+        "opt_state" => move_tree(opt_state, Array),
+        "global_step" => global_step,
+        "epoch" => epoch,
+        "data_rng" => data_rng,
+    )
+    payload["tokenizer"] = tokenizer
+    jldsave(path; payload...)
+end
+
 function train()
     config_path = get(ARGS, 1, "configs/perigee_train.toml")
     cfg = load_config(config_path)
@@ -236,6 +283,14 @@ function train()
     sequence_length = cfg.training["sequence_length"]
 
     println("Loaded vocab of $(length(vocab)) tokens")
+    checkpoint_dir = cfg.training["checkpoint_dir"]
+    mkpath(checkpoint_dir)
+    checkpoint_path = joinpath(checkpoint_dir, cfg.training["checkpoint_name"])
+    resume_requested = should_resume()
+    resume_state = resume_requested && isfile(checkpoint_path) ? JLD2.load(checkpoint_path) : nothing
+    if resume_requested && resume_state === nothing
+        @warn "PERIGEE_RESUME requested but checkpoint not found" checkpoint_path
+    end
     train_raw = load_sequences(
         cfg.training["train_path"];
         seq_len = sequence_length,
@@ -255,7 +310,9 @@ function train()
         "Loaded $(length(train_sequences)) training samples and $(length(val_sequences)) validation samples",
     )
     seed = cfg.training["seed"]
-    data_rng = Random.MersenneTwister(seed)
+    data_rng = resume_state !== nothing && haskey(resume_state, "data_rng") ?
+               resume_state["data_rng"] :
+               Random.MersenneTwister(seed)
     model_rng = Random.default_rng()
     Random.seed!(model_rng, seed)
 
@@ -285,18 +342,41 @@ function train()
         max_radius = cfg.model["max_radius"],
     )
 
-    ps, st = Lux.setup(model_rng, model)
-    ps = move_tree(ps, mover)
-    st = move_tree(st, mover)
-    st_template = clone_state(st)
-
     opt = build_optimizer(cfg)
-    opt_state = Optimisers.setup(opt, ps)
     base_lr = cfg.training["learning_rate"]
     schedule = build_lr_schedule(cfg)
 
-    checkpoint_dir = cfg.training["checkpoint_dir"]
-    mkpath(checkpoint_dir)
+    ps = nothing
+    st_template = nothing
+    opt_state = nothing
+    global_step = 0
+    start_epoch = 1
+    if resume_state === nothing
+        ps_raw, st_raw = Lux.setup(model_rng, model)
+        ps = move_tree(ps_raw, mover)
+        st = move_tree(st_raw, mover)
+        st_template = clone_state(st)
+        opt_state = Optimisers.setup(opt, ps)
+    else
+        println("Resuming from checkpoint $(checkpoint_path)")
+        ps = move_tree(resume_state["params"], mover)
+        st_template = move_tree(resume_state["states"], mover)
+        if haskey(resume_state, "opt_state")
+            opt_state = move_tree(resume_state["opt_state"], mover)
+        else
+            @warn "Checkpoint missing optimizer state; restarting optimizer from scratch"
+            opt_state = Optimisers.setup(opt, ps)
+        end
+        global_step = Int(get(resume_state, "global_step", 0))
+        start_epoch = Int(get(resume_state, "epoch", 0)) + 1
+        if start_epoch > cfg.training["epochs"]
+            println(
+                "Checkpoint already reached epoch $(start_epoch - 1) (>= target epoch $(cfg.training["epochs"])); exiting.",
+            )
+            return
+        end
+    end
+
     log_path = cfg.training["log_path"]
     mkpath(dirname(log_path))
     json_logger = LoggingExtras.FormatLogger(json_formatter, log_path; append = false)
@@ -307,8 +387,7 @@ function train()
         mkpath(tb_dir)
         tb_logger = TBLogger(tb_dir; mkdir=false)
     end
-    global_step = 0
-    for epoch in 1:cfg.training["epochs"]
+    for epoch in start_epoch:cfg.training["epochs"]
         shuffled = copy(train_sequences)
         Random.shuffle!(data_rng, shuffled)
         st = clone_state(st_template)
@@ -370,21 +449,22 @@ function train()
             log_value(tb_logger, "val/loss", float(val_loss), epoch)
         end
         println("Epoch $(epoch) validation loss = $(round(val_loss, digits=4))")
+        save_training_state(
+            checkpoint_path;
+            config_path = config_path,
+            params = ps,
+            states = st_template,
+            opt_state = opt_state,
+            global_step = global_step,
+            epoch = epoch,
+            data_rng = deepcopy(data_rng),
+            tokenizer = tokenizer,
+        )
+        println("Checkpoint saved to $(checkpoint_path) [epoch $(epoch)]")
     end
 
-    checkpoint_path = joinpath(checkpoint_dir, cfg.training["checkpoint_name"])
-    params = move_tree(ps, Array)
-    states = move_tree(st_template, Array)
-    jldsave(
-        checkpoint_path;
-        config_path = config_path,
-        params = params,
-        states = states,
-        tokenizer = tokenizer,
-    )
     tb_logger !== nothing && close(tb_logger)
     tb_logger !== nothing && close(tb_logger)
-    println("Checkpoint saved to $(checkpoint_path)")
 end
 
 function evaluate(model, tokenizer, sequences, cfg, ps, st_template, use_gpu, rng)

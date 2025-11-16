@@ -8,10 +8,10 @@ pipeline introduced in `scripts/train_perigee.jl` and `scripts/generate_perigee.
 - **Vocabulary**: word-level tokens derived from the training corpus and stored in
   `perigee_vocab.json` (50,000 entries plus the special markers `[PAD]`, `[MASK]`,
   `[UNK]`, `[BOS]`, `[EOS]`).
-- **Model hyperparameters**: see `configs/perigee_train.toml` (`num_layers=16`,
-  `model_dim=128`, `oscillator_count=16`, `num_heads=8`, `mamba_repeat=2`,
-  `radius_factor=4.0`, base radius = 24).
-- **Optimizer**: AdamW (lr = 2e-4) for 1 epoch, batch size 1.
+- **Model hyperparameters**: see `configs/perigee_train.toml` (`num_layers=32`,
+  `sequence_length=2048`, `model_dim=128`, `oscillator_count=16`, `num_heads=8`,
+  `mamba_repeat=2`, `radius_factor=4.0`, base radius = 24).
+- **Optimizer**: AdamW (lr = 1.5e-4) for 8 epochs, batch size 1.
 - **Hardware note**: the local Tesla M40 (compute capability 5.2) is supported up
   through CUDA 12.8. `LocalPreferences.toml` pins the runtime to 12.8 so
   `train_perigee.jl` initializes the GPU successfully even though the host driver
@@ -44,8 +44,33 @@ python scripts/build_unified_corpus.py
 
 `build_openwebtext2_sample.py` streams the Hugging Face tarball on-the-fly, so it only downloads the bytes required for the requested counts.
 
+### Quick hyperparameter overrides
+Both `train_perigee.jl` and `generate_perigee.jl` read optional environment variables before constructing the model:
+
+- `PERIGEE_NUM_LAYERS`
+- `PERIGEE_NUM_HEADS`
+- `PERIGEE_OSCILLATOR_COUNT`
+
+Example:
+
+```bash
+PERIGEE_NUM_LAYERS=24 PERIGEE_NUM_HEADS=12 PERIGEE_OSCILLATOR_COUNT=32 \
+  JULIA_DEBUG= ./scripts/train_perigee.jl configs/perigee_train.toml
+```
+
+If unset, the scripts fall back to the values stored in the config TOML.
+
+### Resuming long trainings
+Set `PERIGEE_RESUME=1` to restart `train_perigee.jl` from the latest checkpoint in `checkpoint_dir`. After every epoch the script now saves parameters, optimizer state, RNG state, and the tokenizer, so interrupted multi-hour runs can restart without losing progress:
+
+```bash
+PERIGEE_RESUME=1 JULIA_DEBUG= ./scripts/train_perigee.jl configs/perigee_train.toml
+```
+
+If the checkpoint already completed all configured epochs, the script exits immediately.
+
 ## Smoke Test
-- Config: `configs/perigee_smoke.toml` (layers halved, 64-token windows, 64 sequences).
+- Config: `configs/perigee_smoke.toml` (32-layer stack, 2,048-token windows, 32 sampled sequences for a quick GPU sanity pass).
 - Command: `./scripts/train_perigee.jl configs/perigee_smoke.toml`
 - Output: `checkpoints/perigee_smoke_epoch1.jls`, log at `logs/smoke_log.jsonl`.
 
@@ -60,7 +85,7 @@ python scripts/build_unified_corpus.py
   ```
 - Like training, generation attempts to use CUDA first; on this machine it also
   falls back to CPU with a warning about the unsupported M40 card when a compatible
-  runtime is unavailable. With 1,024-token windows, GPU acceleration is mandatory
+  runtime is unavailable. With 2,048-token windows, GPU acceleration is mandatory
   for reasonable throughput.
 - Example output from the full config command above (after 6 diffusion refinement steps):
   ```
@@ -88,8 +113,7 @@ Batch inference is now the 6th positional argument (default `1`).
 
 ## Reproducibility checklist
 1. `julia --project -e 'using Pkg; Pkg.instantiate()'`
-2. Ensure `configs/perigee_train.toml` points at your dataset, adjust
-   `max_sequences`, `sequence_length`, etc., if desired.
+2. Ensure `configs/perigee_train.toml` points at your dataset (2048-token windows, 32 layers); adjust `max_sequences`, epochs, etc., if desired.
 3. Run the training command. Watch `artifacts/perigee/logs/training_log.jsonl` for
    streaming losses; reruns overwrite the log.
 4. Use the generation script with any prompt up to 128 whitespace tokens.
