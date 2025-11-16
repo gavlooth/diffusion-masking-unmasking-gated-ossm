@@ -12,6 +12,21 @@ The repo follows the standard Julia layout: `Project.toml` and `Manifest.toml` d
 ## Coding Style & Naming Conventions
 Use 4-space indentation, ~92-character lines, descriptive `snake_case` functions, and `CamelCase` types. Favor functional composition (`map`, `foldl`, comprehensions) over broadcasting or loops; if mutation is required, name the binding and reason. Keep literals typed (`0.01f0`), qualify Base/stdlib calls for clarity, guard GPU paths with capability checks, add docstrings for public APIs, and format via `julia --project -e 'using JuliaFormatter; format("src")'` when available.
 
+In general, express elementwise logic with short functional expressions (`map`, comprehensions, small `do` blocks) instead of hand-written loops or broadcast chains. Custom AD hooks (`rrule`, pullbacks, etc.) should model the preference:
+
+```
+function rrule(::typeof(sigmoid_map), x)
+    y = sigmoid_map(x)
+    function pullback(Δ)
+        grad = map(y, Δ) do yᵢ, Δᵢ
+            Δᵢ * yᵢ * (1f0 - yᵢ)
+        end
+        return NoTangent(), grad
+    end
+    return y, pullback
+end
+```
+
 ### Mathematical Commenting Standard
 Before any nontrivial block, state the map with domain/codomain and coordinate formula (e.g., `F: ℝ^{2M} × ℝ^M → ℝ^{2M}`) and reference those equations in comments. Avoid terms like “operator” or “MLP” unless immediately expanded into the explicit affine/nonlinear expression. Show intermediate algebraic steps so reviewers can match each Julia line to the written derivation.
 
