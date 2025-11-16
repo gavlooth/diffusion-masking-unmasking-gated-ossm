@@ -4,7 +4,7 @@ This folder records the artifacts produced by the Perigee diffusion language mod
 pipeline introduced in `scripts/train_perigee.jl` and `scripts/generate_perigee.jl`.
 
 ## Training summary
-- **Dataset**: `data_sets/wiki.train.raw` (first 4,096 windowed sequences of 1,024 tokens).
+- **Dataset**: `data_sets/pg19.train.raw` (Project Gutenberg 19th-century novels, first 4,096 windowed sequences of 1,024 tokens).
 - **Vocabulary**: word-level tokens derived from the training corpus and stored in
   `perigee_vocab.json` (50,000 entries plus the special markers `[PAD]`, `[MASK]`,
   `[UNK]`, `[BOS]`, `[EOS]`).
