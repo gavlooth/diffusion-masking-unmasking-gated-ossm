@@ -39,39 +39,64 @@ end
 
 simple_bool(str) = lowercase(str) in ("1", "true", "yes", "y", "matrix", "live")
 
-function stylize_token(token::AbstractString, prev::AbstractString, masked::Bool)
-    if masked && (token == "[MASK]" || token == "[PAD]")
-        return "[???]"
+const DIM = "\e[2m"
+const RESET = "\e[0m"
+
+function obfuscate_token(token::AbstractString)
+    stripped = replace(token, r"[^A-Za-z0-9]" => "")
+    isempty(stripped) && return "[???]"
+    if length(stripped) == 1
+        return DIM * "[" * string(first(stripped)) * "?]" * RESET
     end
-    token == prev && return token
-    return string("\e[32m", token, "\e[0m")
+    return DIM * "[" * string(first(stripped)) * "?" * string(last(stripped)) * "]" * RESET
 end
 
-function render_inline(step::Int, columns, prev_columns, mask_indices)
+function stylize_token(token::AbstractString, prev::AbstractString, masked::Bool, obfuscate::Bool)
+    base = if masked
+        obfuscate ? obfuscate_token(token) : "[???]"
+    else
+        token
+    end
+    prev_base = if masked
+        obfuscate ? obfuscate_token(prev) : "[???]"
+    else
+        prev
+    end
+    base == prev_base && return base
+    return string("\e[32m", base, "\e[0m")
+end
+
+function render_inline(step::Int, columns, prev_columns, mask_indices, obfuscate::Bool)
     println("Step $(step) diffusion text view:")
     for (col_idx, col) in enumerate(columns)
         tokens_view = map(1:length(col)) do idx
             masked = idx in mask_indices
             prev_tok = prev_columns[col_idx][idx]
-            stylize_token(col[idx], prev_tok, masked)
+            stylize_token(col[idx], prev_tok, masked, obfuscate)
         end
         println("[column $(col_idx)] " * join(tokens_view, " "))
     end
 end
 
-function render_live(columns, prev_columns, mask_indices)
-    lines_per_column = length(columns[1]) + 1
-    total_lines = lines_per_column * length(columns)
-    print("\e[" * string(total_lines) * "A")  # move cursor up
+function render_live(columns, prev_columns, mask_indices, obfuscate::Bool)
+    lines = length(columns)
+    print("\e[" * string(lines) * "A")
     for (col_idx, col) in enumerate(columns)
-        print("\r[" * string(col_idx) * "] ")
         tokens_view = map(1:length(col)) do idx
             masked = idx in mask_indices
             prev_tok = prev_columns[col_idx][idx]
-            stylize_token(col[idx], prev_tok, masked)
+            stylize_token(col[idx], prev_tok, masked, obfuscate)
         end
-        print("\e[2K" * "[column $(col_idx)] " * join(tokens_view, " ") * "\n")
+        print("\r\e[2K[column $(col_idx)] " * join(tokens_view, " ") * "\n")
     end
+end
+
+function record_frame(io::IO, step::Int, columns)
+    println(io, "Step $(step)")
+    for (col_idx, col) in enumerate(columns)
+        println(io, "[column $(col_idx)] " * join(col, " "))
+    end
+    println(io)
 end
 
 function load_model(cfg)
@@ -130,6 +155,9 @@ function generate()
     show_matrix = simple_bool(render_flag)
     live_mode = render_flag == "live"
     batch_size = length(ARGS) >= 6 ? parse(Int, ARGS[6]) : 1
+    record_path = length(ARGS) >= 7 ? strip(ARGS[7]) : ""
+    record_io = record_path == "" ? nothing : open(record_path, "w")
+    obfuscate = true
 
     cfg = TOML.parsefile(config_path)
     checkpoint_info = resolve_checkpoint_path(cfg, checkpoint_override)
@@ -199,25 +227,38 @@ function generate()
     seq = use_gpu ? CUDA.cu(seq) : seq
     prev_columns = deepcopy(token_columns)
 
+    if live_mode
+        for _ in 1:batch_size
+            println()
+        end
+    end
+
     rng = Random.default_rng()
-    for step in 1:steps
-        output, st = model(seq, ps, st)
-        preds = Array(output.logits)
-        for (col_idx, col_tokens) in enumerate(token_columns)
-            col_preds = preds[:, col_idx]
+    try
+        for step in 1:steps
+            output, st = model(seq, ps, st)
+            preds = Array(output.logits)
+            for (col_idx, col_tokens) in enumerate(token_columns)
+                col_preds = preds[:, col_idx]
             for idx in mask_indices
                 raw = clamp(col_preds[idx] * norm_factor, min_prime, max_prime)
                 col_tokens[idx] = nearest_token(tokenizer, raw)
             end
         end
-        if live_mode
-            render_live(token_columns, prev_columns, mask_indices)
-        elseif show_matrix
-            render_inline(step, token_columns, prev_columns, mask_indices)
+            if live_mode
+                render_live(token_columns, prev_columns, mask_indices, obfuscate)
+            elseif show_matrix
+                render_inline(step, token_columns, prev_columns, mask_indices, obfuscate)
+            end
+            if record_io !== nothing
+                record_frame(record_io, step, token_columns)
+            end
+            prev_columns = deepcopy(token_columns)
+            seq = encode_tokens_matrix(token_columns)
+            seq = use_gpu ? CUDA.cu(seq) : seq
         end
-        prev_columns = deepcopy(token_columns)
-        seq = encode_tokens_matrix(token_columns)
-        seq = use_gpu ? CUDA.cu(seq) : seq
+    finally
+        record_io !== nothing && close(record_io)
     end
 
     println("Prompt: \"$(prompt)\"")
