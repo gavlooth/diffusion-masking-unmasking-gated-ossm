@@ -4,14 +4,14 @@ This folder records the artifacts produced by the Perigee diffusion language mod
 pipeline introduced in `scripts/train_perigee.jl` and `scripts/generate_perigee.jl`.
 
 ## Training summary
-- **Dataset**: `data_sets/wiki.train.raw` (first 4,096 windowed sequences of 512 tokens).
+- **Dataset**: `data_sets/wiki.train.raw` (first 4,096 windowed sequences of 1,024 tokens).
 - **Vocabulary**: word-level tokens derived from the training corpus and stored in
   `perigee_vocab.json` (50,000 entries plus the special markers `[PAD]`, `[MASK]`,
   `[UNK]`, `[BOS]`, `[EOS]`).
 - **Model hyperparameters**: see `configs/perigee_train.toml` (`num_layers=16`,
   `model_dim=128`, `oscillator_count=16`, `num_heads=8`, `mamba_repeat=2`,
-  `radius_factor=4.0`).
-- **Optimizer**: AdamW (lr = 2e-4) for 1 epoch, batch size 2.
+  `radius_factor=4.0`, base radius = 24).
+- **Optimizer**: AdamW (lr = 2e-4) for 1 epoch, batch size 1.
 - **Hardware note**: the local Tesla M40 (compute capability 5.2) is supported up
   through CUDA 12.8. `LocalPreferences.toml` pins the runtime to 12.8 so
   `train_perigee.jl` initializes the GPU successfully even though the host driver
@@ -40,8 +40,8 @@ pipeline introduced in `scripts/train_perigee.jl` and `scripts/generate_perigee.
   ```
 - Like training, generation attempts to use CUDA first; on this machine it also
   falls back to CPU with a warning about the unsupported M40 card when a compatible
-  runtime is unavailable. With 512-token windows, GPU acceleration is strongly
-  recommended.
+  runtime is unavailable. With 1,024-token windows, GPU acceleration is mandatory
+  for reasonable throughput.
 - Example output from the full config command above (after 6 diffusion refinement steps):
   ```
   Gallia prepares for battle near the capital the the [EOS] [EOS] ...

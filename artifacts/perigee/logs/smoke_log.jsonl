@@ -1,3 +1,3 @@
-{"grad_norm":0.44621897,"step":25,"message":"perigee","epoch":1,"learning_rate":0.0005,"timestamp":"2025-11-16T09:57:33.789","loss":0.061615385,"level":"Info"}
-{"grad_norm":0.28686038,"step":50,"message":"perigee","epoch":1,"learning_rate":0.0005,"timestamp":"2025-11-16T09:57:44.277","loss":0.024578933,"level":"Info"}
-{"message":"perigee","epoch":1,"phase":"validation","timestamp":"2025-11-16T09:57:50.636","loss":0.031122899,"level":"Info"}
+{"grad_norm":0.34642324,"step":25,"message":"perigee","epoch":1,"learning_rate":0.0005,"timestamp":"2025-11-16T10:17:10.598","loss":0.08291038,"level":"Info"}
+{"grad_norm":0.21291246,"step":50,"message":"perigee","epoch":1,"learning_rate":0.0005,"timestamp":"2025-11-16T10:17:21.527","loss":0.029944569,"level":"Info"}
+{"message":"perigee","epoch":1,"phase":"validation","timestamp":"2025-11-16T10:17:28.265","loss":0.03116445,"level":"Info"}
