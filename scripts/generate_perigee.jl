@@ -39,23 +39,24 @@ end
 
 simple_bool(str) = lowercase(str) in ("1", "true", "yes", "y", "matrix")
 
-function highlight_token(curr::AbstractString, prev::AbstractString)
-    curr == prev && return curr
-    return string("\e[32m", curr, "\e[0m")
+function stylize_token(token::AbstractString, prev::AbstractString, masked::Bool)
+    if masked && (token == "[MASK]" || token == "[PAD]")
+        return "[???]"
+    end
+    token == prev && return token
+    return string("\e[32m", token, "\e[0m")
 end
 
-function render_matrix(step::Int, columns, prev_columns, mask_indices; max_rows::Int = 24)
-    total = length(mask_indices)
-    display_count = min(total, max_rows)
-    indices = mask_indices[1:display_count]
-    println("┌ Step $(step) masked-token evolution (showing $(display_count) of $(total))")
-    for idx in indices
-        col_tokens = map(eachindex(columns)) do col_idx
-            highlight_token(columns[col_idx][idx], prev_columns[col_idx][idx])
+function render_inline(step::Int, columns, prev_columns, mask_indices)
+    println("Step $(step) diffusion text view:")
+    for (col_idx, col) in enumerate(columns)
+        tokens_view = map(1:length(col)) do idx
+            masked = idx in mask_indices
+            prev_tok = prev_columns[col_idx][idx]
+            stylize_token(col[idx], prev_tok, masked)
         end
-        println(rpad(string(idx), 6) * " │ " * join(col_tokens, " │ "))
+        println("[column $(col_idx)] " * join(tokens_view, " "))
     end
-    println("└")
 end
 
 function load_model(cfg)
@@ -193,7 +194,7 @@ function generate()
             end
         end
         if show_matrix
-            render_matrix(step, token_columns, prev_columns, mask_indices)
+            render_inline(step, token_columns, prev_columns, mask_indices)
         end
         prev_columns = deepcopy(token_columns)
         seq = encode_tokens_matrix(token_columns)
