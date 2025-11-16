@@ -36,10 +36,8 @@ end
 function rrule(::typeof(sigmoid_map), x::AbstractArray)
     y = sigmoid_map(x)
     function sigmoid_pullback(Δ)
-        grad = similar(x)
-        for idx in eachindex(y, Δ)
-            y_val = y[idx]
-            grad[idx] = Δ[idx] * y_val * (1f0 - y_val)
+        grad = map(y, Δ) do y_val, Δ_val
+            Δ_val * y_val * (1f0 - y_val)
         end
         return (NoTangent(), grad)
     end
@@ -53,11 +51,9 @@ end
 function rrule(::typeof(contraction_sigmoid), x::AbstractArray)
     y = contraction_sigmoid(x)
     function contraction_pullback(Δ)
-        grad = similar(x)
-        for idx in eachindex(y, Δ)
-            y_val = y[idx]
-            clamp_mask = (y_val > MIN_ALPHA && y_val < MAX_ALPHA) ? 1f0 : 0f0
-            grad[idx] = Δ[idx] * y_val * (1f0 - y_val) * clamp_mask
+        grad = map(y, Δ) do y_val, Δ_val
+            active = (y_val > MIN_ALPHA && y_val < MAX_ALPHA) ? 1f0 : 0f0
+            Δ_val * y_val * (1f0 - y_val) * active
         end
         return (NoTangent(), grad)
     end
