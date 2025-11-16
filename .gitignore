@@ -1,0 +1,11 @@
+# Data corpora live outside version control
+data_sets/
+
+# Training checkpoints stay local-only
+artifacts/perigee/checkpoints/
+
+# Developer-specific or throwaway state
+LocalPreferences.toml
+.venv/
+.venv-data/
+attention_tmp/
