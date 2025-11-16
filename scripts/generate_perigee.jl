@@ -37,7 +37,7 @@ function tokenize_prompt(prompt::String)
     return map(lowercase, WordTokenizers.tokenize(stripped))
 end
 
-simple_bool(str) = lowercase(str) in ("1", "true", "yes", "y", "matrix")
+simple_bool(str) = lowercase(str) in ("1", "true", "yes", "y", "matrix", "live")
 
 function stylize_token(token::AbstractString, prev::AbstractString, masked::Bool)
     if masked && (token == "[MASK]" || token == "[PAD]")
@@ -56,6 +56,21 @@ function render_inline(step::Int, columns, prev_columns, mask_indices)
             stylize_token(col[idx], prev_tok, masked)
         end
         println("[column $(col_idx)] " * join(tokens_view, " "))
+    end
+end
+
+function render_live(columns, prev_columns, mask_indices)
+    lines_per_column = length(columns[1]) + 1
+    total_lines = lines_per_column * length(columns)
+    print("\e[" * string(total_lines) * "A")  # move cursor up
+    for (col_idx, col) in enumerate(columns)
+        print("\r[" * string(col_idx) * "] ")
+        tokens_view = map(1:length(col)) do idx
+            masked = idx in mask_indices
+            prev_tok = prev_columns[col_idx][idx]
+            stylize_token(col[idx], prev_tok, masked)
+        end
+        print("\e[2K" * "[column $(col_idx)] " * join(tokens_view, " ") * "\n")
     end
 end
 
@@ -111,7 +126,9 @@ function generate()
     checkpoint_override = length(ARGS) >= 2 ? ARGS[2] : nothing
     prompt = get(ARGS, 3, "Gallia's forces were preparing for the next offensive.")
     steps = parse(Int, get(ARGS, 4, "6"))
-    show_matrix = length(ARGS) >= 5 && simple_bool(ARGS[5])
+    render_flag = length(ARGS) >= 5 ? lowercase(ARGS[5]) : ""
+    show_matrix = simple_bool(render_flag)
+    live_mode = render_flag == "live"
     batch_size = length(ARGS) >= 6 ? parse(Int, ARGS[6]) : 1
 
     cfg = TOML.parsefile(config_path)
@@ -193,7 +210,9 @@ function generate()
                 col_tokens[idx] = nearest_token(tokenizer, raw)
             end
         end
-        if show_matrix
+        if live_mode
+            render_live(token_columns, prev_columns, mask_indices)
+        elseif show_matrix
             render_inline(step, token_columns, prev_columns, mask_indices)
         end
         prev_columns = deepcopy(token_columns)
