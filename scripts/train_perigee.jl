@@ -294,7 +294,6 @@ function train()
     opt_state = Optimisers.setup(opt, ps)
     base_lr = cfg.training["learning_rate"]
     schedule = build_lr_schedule(cfg)
-    laws_weight = Float32(get(cfg.training, "laws_weight", 0.0))
 
     checkpoint_dir = cfg.training["checkpoint_dir"]
     mkpath(checkpoint_dir)
@@ -322,12 +321,12 @@ function train()
             )
 
             loss_fn = function (param)
-                l, _ = perigee_diffusion_loss(model, batch_gpu, param, st; laws_weight = laws_weight)
+                l, _ = perigee_diffusion_loss(model, batch_gpu, param, st)
                 return l
             end
             loss, back = Zygote.pullback(loss_fn, ps)
             grads = back(1f0)[1]
-            batch_loss, st = perigee_diffusion_loss(model, batch_gpu, ps, st; laws_weight = laws_weight)
+            batch_loss, st = perigee_diffusion_loss(model, batch_gpu, ps, st)
             global_step += 1
             lr_current = schedule(global_step)
             scale_factor = lr_current / base_lr
@@ -359,7 +358,7 @@ function train()
             end
         end
 
-        val_loss = evaluate(model, tokenizer, val_sequences, cfg, ps, st_template, use_gpu, data_rng, laws_weight)
+        val_loss = evaluate(model, tokenizer, val_sequences, cfg, ps, st_template, use_gpu, data_rng)
         val_log = Dict(
             "timestamp" => string(now(UTC)),
             "epoch" => epoch,
@@ -388,7 +387,7 @@ function train()
     println("Checkpoint saved to $(checkpoint_path)")
 end
 
-function evaluate(model, tokenizer, sequences, cfg, ps, st_template, use_gpu, rng, laws_weight)
+function evaluate(model, tokenizer, sequences, cfg, ps, st_template, use_gpu, rng)
     isempty(sequences) && return 0.0f0
     val_batches = batches(sequences, cfg.training["batch_size"])
     limit = min(length(val_batches), 8)
@@ -402,7 +401,7 @@ function evaluate(model, tokenizer, sequences, cfg, ps, st_template, use_gpu, rn
             targets = to_device(batch.targets, use_gpu),
             mask_matrix = to_device(batch.mask_matrix, use_gpu),
         )
-        loss, st_eval = perigee_diffusion_loss(model, batch_gpu, ps, st_eval; laws_weight = laws_weight)
+        loss, st_eval = perigee_diffusion_loss(model, batch_gpu, ps, st_eval)
         total += loss
     end
     return total / limit

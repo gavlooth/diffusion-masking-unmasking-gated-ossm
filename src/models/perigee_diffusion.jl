@@ -15,9 +15,6 @@ const BASE_LOSS = LossFunctions.L2DistLoss()
     return sum(abs2, diff) / length(diff)
 end
 
-@inline function stable_tanh(x::AbstractArray)
-    return 2f0 ./ (1f0 .+ exp.(-2f0 .* x)) .- 1f0
-end
 
 @inline function _scatter_rngs(rng::Random.AbstractRNG, count::Int)
     return [Random.MersenneTwister(Random.rand(rng, UInt)) for _ in 1:count]
@@ -38,7 +35,6 @@ struct PerigeeMixerBlock <: Lux.AbstractLuxLayer
     transformer::LogWindowTransformer
     fusion_norm::Lux.LayerNorm
     diffusion_proj::Lux.Dense
-    energy_proj::Lux.Dense
 end
 
 function PerigeeMixerBlock(
@@ -69,7 +65,6 @@ function PerigeeMixerBlock(
         transformer,
         Lux.LayerNorm(model_dim),
         Lux.Dense(model_dim, model_dim),
-        Lux.Dense(model_dim, 1),
     )
 end
 
@@ -82,13 +77,11 @@ function initialparameters(rng::Random.AbstractRNG, block::PerigeeMixerBlock)
     trans_ps = initialparameters(rngs[end-3], block.transformer)
     fusion_norm = Lux.initialparameters(rngs[end-2], block.fusion_norm)
     diffusion_proj = Lux.initialparameters(rngs[end-1], block.diffusion_proj)
-    energy_proj = Lux.initialparameters(rngs[end], block.energy_proj)
     return (
         mamba_layers = mamba_ps,
         transformer = trans_ps,
         fusion_norm = fusion_norm,
         diffusion_proj = diffusion_proj,
-        energy_proj = energy_proj,
     )
 end
 
@@ -101,13 +94,11 @@ function initialstates(rng::Random.AbstractRNG, block::PerigeeMixerBlock)
     trans_st = initialstates(rngs[end-3], block.transformer)
     fusion_norm = Lux.initialstates(rngs[end-2], block.fusion_norm)
     diffusion_proj = Lux.initialstates(rngs[end-1], block.diffusion_proj)
-    energy_proj = Lux.initialstates(rngs[end], block.energy_proj)
     return (
         mamba_layers = mamba_st,
         transformer = trans_st,
         fusion_norm = fusion_norm,
         diffusion_proj = diffusion_proj,
-        energy_proj = energy_proj,
     )
 end
 
@@ -131,14 +122,12 @@ function (block::PerigeeMixerBlock)(seq::AbstractMatrix, ps::NamedTuple, st::Nam
     normed, st_norm = block.fusion_norm(fused, ps.fusion_norm, st.fusion_norm)
     diffusion_logits, st_diff =
         block.diffusion_proj(normed, ps.diffusion_proj, st.diffusion_proj)
-    energy_logits, st_energy = block.energy_proj(normed, ps.energy_proj, st.energy_proj)
-    return (sequence = normed, diffusion = diffusion_logits, energy = energy_logits),
+    return (sequence = normed, diffusion = diffusion_logits),
     (
         mamba_layers = mamba_states,
         transformer = st_trans,
         fusion_norm = st_norm,
         diffusion_proj = st_diff,
-        energy_proj = st_energy,
     )
 end
 
@@ -193,7 +182,6 @@ function (model::PerigeeDiffusionLM)(seq::AbstractMatrix, ps::NamedTuple, st::Na
     fold_init = (
         sequence = seq,
         diffusion = nothing,
-        energy = nothing,
         states = (),
     )
     indices = 1:length(model.blocks)
@@ -204,13 +192,9 @@ function (model::PerigeeDiffusionLM)(seq::AbstractMatrix, ps::NamedTuple, st::Na
             next_diffusion = acc.diffusion === nothing ?
                              block_out.diffusion :
                              acc.diffusion + block_out.diffusion
-            next_energy = acc.energy === nothing ?
-                          block_out.energy :
-                          acc.energy + block_out.energy
             return (
                 sequence = block_out.sequence,
                 diffusion = next_diffusion,
-                energy = next_energy,
                 states = tuple(acc.states..., block_state),
             )
         end,
@@ -222,11 +206,8 @@ function (model::PerigeeDiffusionLM)(seq::AbstractMatrix, ps::NamedTuple, st::Na
     logits, st_vocab = model.vocab_proj(normed, ps.vocab_proj, st.vocab_proj)
     diffusion_total =
         folded.diffusion === nothing ? zeros(Float32, size(normed)) : folded.diffusion
-    energy_total = folded.energy === nothing ?
-                   zeros(Float32, 1, size(normed, 2)) :
-                   folded.energy
     block_states = folded.states
-    return (logits = logits, diffusion = diffusion_total, energy = energy_total),
+    return (logits = logits, diffusion = diffusion_total),
     (blocks = block_states, final_norm = st_norm, vocab_proj = st_vocab)
 end
 
@@ -291,7 +272,7 @@ function perigee_prepare_batch(
     return (observed = obs, targets = targets, mask_matrix = mask_matrix)
 end
 
-function perigee_diffusion_loss(model::PerigeeDiffusionLM, batch::NamedTuple, ps, st; laws_weight::Float32 = 0f0)
+function perigee_diffusion_loss(model::PerigeeDiffusionLM, batch::NamedTuple, ps, st)
     output, st_new = model(batch.observed, ps, st)
     pred = output.logits
     base_loss = mse_mean(pred, batch.targets)
@@ -299,23 +280,8 @@ function perigee_diffusion_loss(model::PerigeeDiffusionLM, batch::NamedTuple, ps
     mask_loss = mask_weight == 0 ?
                 0f0 :
                 mse_mean(pred .* batch.mask_matrix, batch.targets .* batch.mask_matrix)
-    logic_penalty = laws_of_thought_penalty(output, batch)
-    loss = base_loss + 2f0 * mask_loss + laws_weight * logic_penalty
+    loss = base_loss + 2f0 * mask_loss
     return loss, st_new
-end
-
-function laws_of_thought_penalty(output::NamedTuple, batch::NamedTuple)
-    mask = batch.mask_matrix
-    total = Float32(length(mask))
-    masked_total = sum(mask)
-    total_masked = max(masked_total, 1f0)
-    total_unmasked = max(total - masked_total, 1f0)
-    identity_penalty = sum(abs2, (1 .- mask) .* output.energy) / total_unmasked
-    noncontradiction_penalty =
-        sum(abs.(mask .* output.diffusion .* output.energy)) / total_masked
-    excluded_middle_penalty =
-        sum(abs.(mask .* (abs.(stable_tanh(output.diffusion)) .- 1f0))) / total_masked
-    return identity_penalty + noncontradiction_penalty + excluded_middle_penalty
 end
 
 # julia --project -e 'using ossmv2; CUDA.functional()' 
