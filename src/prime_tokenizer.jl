@@ -79,6 +79,17 @@ struct PrimeTokenizer{T<:AbstractString}
     prime_to_token::Dict{Int, T}
 end
 
+@inline prime_scale(tokenizer::PrimeTokenizer) = Float32(tokenizer.codec.table[end])
+
+@inline function normalize_prime_codes(tokenizer::PrimeTokenizer, codes::AbstractVector)
+    scale = prime_scale(tokenizer)
+    return Float32.(codes) ./ scale
+end
+
+@inline function denormalize_prime_value(tokenizer::PrimeTokenizer, value::Real)
+    return Float32(value) * prime_scale(tokenizer)
+end
+
 function PrimeTokenizer(vocab::AbstractVector{T}; mask_token::T = "[MASK]") where {T<:AbstractString}
     vocab_vec = collect(vocab)
     has_mask = any(==(mask_token), vocab_vec)

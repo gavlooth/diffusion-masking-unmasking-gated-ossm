@@ -24,4 +24,4 @@ vocab_path = "artifacts/perigee/perigee_vocab.json"
 checkpoint_dir = "artifacts/perigee/checkpoints"
 log_path = "artifacts/perigee/logs/smoke_log.jsonl"
 checkpoint_name = "perigee_smoke_epoch1.jls"
-use_gpu = false
+use_gpu = true

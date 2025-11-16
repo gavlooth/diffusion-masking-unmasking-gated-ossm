@@ -1,6 +1,9 @@
 # Layers (shape-only structs)
 # ───────────────────────────────────────────────────────────────────────────────
 
+import ChainRulesCore: rrule, NoTangent
+import Zygote
+
 struct OscillatorBank <: Lux.AbstractLuxLayer
     oscillator_count::Int
 end
@@ -22,6 +25,36 @@ end
 
 # Small logistic; qualify exp inside a module
 σ(x) = 1.0f0 / (1.0f0 + Base.exp(-x))
+
+const MIN_ALPHA = 1.0f-6
+const MAX_ALPHA = 0.9999f0
+
+@inline function sigmoid_map(x::AbstractArray)
+    return map(σ, x)
+end
+
+function rrule(::typeof(sigmoid_map), x::AbstractArray)
+    y = sigmoid_map(x)
+    function sigmoid_pullback(Δ)
+        grad = Δ .* y .* (1 .- y)
+        return (NoTangent(), grad)
+    end
+    return y, sigmoid_pullback
+end
+
+@inline function contraction_sigmoid(x::AbstractArray)
+    return map(value -> clamp(σ(value), MIN_ALPHA, MAX_ALPHA), x)
+end
+
+function rrule(::typeof(contraction_sigmoid), x::AbstractArray)
+    y = contraction_sigmoid(x)
+    active = (y .> MIN_ALPHA) .& (y .< MAX_ALPHA)
+    function contraction_pullback(Δ)
+        grad = active .* y .* (1 .- y)
+        return (NoTangent(), Δ .* grad)
+    end
+    return y, contraction_pullback
+end
 
 # ───────────────────────────────────────────────────────────────────────────────
 # Parameters / States: OscillatorBank (global A)
@@ -89,16 +122,17 @@ end
     @assert length(θ) == M
     @assert length(x_t) == 2M
 
-    pairs = map(1:M) do i
-        x1 = x_t[2i-1]
-        x2 = x_t[2i]
-        a = α[i]
-        c = Base.cos(θ[i])
-        s = Base.sin(θ[i])
-        (a * (c * x1 - s * x2), a * (s * x1 + c * x2))
+    state = reshape(x_t, 2, M)
+    @views begin
+        row1 = state[1, :]
+        row2 = state[2, :]
+        cosθ = Base.cos.(θ)
+        sinθ = Base.sin.(θ)
+        y1 = α .* (cosθ .* row1 .- sinθ .* row2)
+        y2 = α .* (sinθ .* row1 .+ cosθ .* row2)
+        combined = permutedims(hcat(y1, y2), (2, 1))
+        return reshape(combined, :)
     end
-
-    return collect(Iterators.flatten(pairs))
 end
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -118,11 +152,11 @@ function (ssm::GatedOscSSMUnit)(
     # Gates from input: g_B ∈ ℝ^{state_dim}, g_C ∈ ℝ^{output_dim}
     gB_aff = gate_B.weight * u_t + gate_B.bias
     gC_aff = gate_C.weight * u_t + gate_C.bias
-    g_B = map(σ, gB_aff)
-    g_C = map(σ, gC_aff)
+    g_B = sigmoid_map(gB_aff)
+    g_C = sigmoid_map(gC_aff)
 
     # Oscillator params α ∈ (0,1)^M, θ ∈ ℝ^M
-    α = map(x -> min(max(σ(x), 1.0f-6), 0.9999f0), logit_contraction)
+    α = contraction_sigmoid(logit_contraction)
     θ = rotation_angle
 
     # State update: x_{t+1} = A x_t + Diagonal(g_B) * (B0 * u_t)
@@ -193,17 +227,20 @@ function propagate_oscillator_sequence(
 )
     time_steps = size(seq, 2)
     output_dim = block.ssm_unit.output_dimension
-    outputs = Matrix{Float32}(undef, output_dim, time_steps)
-    step = function ((state, column_idx), u_t)
-        y_t, state_next = block(u_t, ps_block, state)
-        outputs[:, column_idx] = y_t                 # single mutation for efficiency
-        return (state_next, column_idx + 1)
-    end
     if time_steps == 0
-        return outputs, st_block
+        return similar(seq, Float32, output_dim, 0), st_block
     end
-    acc_final = foldl(step, eachcol(seq); init = (st_block, 1))
-    return outputs, acc_final[1]
+    @views first_column = seq[:, 1]
+    y_first, state = block(first_column, ps_block, st_block)
+    columns = Zygote.Buffer(Vector{typeof(y_first)}(undef, time_steps))
+    columns[1] = y_first
+    for idx in 2:time_steps
+        @views column = seq[:, idx]
+        y_t, state = block(column, ps_block, state)
+        columns[idx] = y_t
+    end
+    outputs = hcat(copy(columns)...)
+    return outputs, state
 end
 
 # ───────────────────────────────────────────────────────────────────────────────

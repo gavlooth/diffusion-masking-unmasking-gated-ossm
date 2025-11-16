@@ -11,6 +11,7 @@ using TensorBoardLogger: TBLogger, log_value
 
 using Lux
 using LuxCore
+using LuxCUDA
 using Optimisers
 using Zygote
 using Functors
@@ -175,6 +176,30 @@ function scale_tree(tree, factor::Real)
     return Functors.fmap(x -> x isa AbstractArray ? factor .* x : x, tree)
 end
 
+function try_enable_cuda(requested::Bool)
+    requested || return (false, nothing)
+    try
+        if CUDA.functional()
+            dev = CUDA.device()
+            cap = CUDA.capability(dev)
+            runtime = try
+                string(CUDA.runtime_version())
+            catch
+                "unknown"
+            end
+            CUDA.allowscalar(false)
+            println(
+                "Using CUDA device $(CUDA.name(dev)) (sm_$(cap.major)$(cap.minor)) with runtime $(runtime)",
+            )
+            return (true, nothing)
+        else
+            return (false, "CUDA.functional() returned false")
+        end
+    catch err
+        return (false, err)
+    end
+end
+
 function build_lr_schedule(cfg::TrainConfig)
     base_lr = cfg.training["learning_rate"]
     sched_cfg = get(cfg.training, "lr_schedule", nothing)
@@ -234,32 +259,16 @@ function train()
     model_rng = Random.default_rng()
     Random.seed!(model_rng, seed)
 
-    use_gpu = get(cfg.training, "use_gpu", true)
-    if use_gpu
-        use_gpu = try
-            if CUDA.functional()
-                dev = CUDA.device()
-                capability = CUDA.capability(dev)
-                major = capability.major
-                minor = capability.minor
-                if major < 6
-                    @warn "Compute capability $(major).$(minor) is unsupported on the current CUDA stack; falling back to CPU"
-                    false
-                else
-                    true
-                end
-            else
-                false
-            end
-        catch err
-            @warn "CUDA.functional() failed, falling back to CPU" error = err
-            false
+    gpu_requested = get(cfg.training, "use_gpu", true)
+    use_gpu, gpu_failure = try_enable_cuda(gpu_requested)
+    if !use_gpu && gpu_requested
+        if gpu_failure isa Exception
+            @warn "GPU requested but unavailable; training will run on CPU" error = gpu_failure
+        elseif gpu_failure isa String
+            @warn "GPU requested but unavailable; training will run on CPU" reason = gpu_failure
+        else
+            @warn "GPU requested but unavailable; training will run on CPU"
         end
-    end
-    if use_gpu
-        CUDA.allowscalar(false)
-    else
-        @warn "GPU requested but unavailable; training will run on CPU"
     end
     mover = use_gpu ? CUDA.cu : identity
 
@@ -285,6 +294,7 @@ function train()
     opt_state = Optimisers.setup(opt, ps)
     base_lr = cfg.training["learning_rate"]
     schedule = build_lr_schedule(cfg)
+    laws_weight = Float32(get(cfg.training, "laws_weight", 0.0))
 
     checkpoint_dir = cfg.training["checkpoint_dir"]
     mkpath(checkpoint_dir)
@@ -312,12 +322,12 @@ function train()
             )
 
             loss_fn = function (param)
-                l, _ = perigee_diffusion_loss(model, batch_gpu, param, st)
+                l, _ = perigee_diffusion_loss(model, batch_gpu, param, st; laws_weight = laws_weight)
                 return l
             end
             loss, back = Zygote.pullback(loss_fn, ps)
             grads = back(1f0)[1]
-            batch_loss, st = perigee_diffusion_loss(model, batch_gpu, ps, st)
+            batch_loss, st = perigee_diffusion_loss(model, batch_gpu, ps, st; laws_weight = laws_weight)
             global_step += 1
             lr_current = schedule(global_step)
             scale_factor = lr_current / base_lr
@@ -349,7 +359,7 @@ function train()
             end
         end
 
-        val_loss = evaluate(model, tokenizer, val_sequences, cfg, ps, st_template, use_gpu, data_rng)
+        val_loss = evaluate(model, tokenizer, val_sequences, cfg, ps, st_template, use_gpu, data_rng, laws_weight)
         val_log = Dict(
             "timestamp" => string(now(UTC)),
             "epoch" => epoch,
@@ -378,7 +388,7 @@ function train()
     println("Checkpoint saved to $(checkpoint_path)")
 end
 
-function evaluate(model, tokenizer, sequences, cfg, ps, st_template, use_gpu, rng)
+function evaluate(model, tokenizer, sequences, cfg, ps, st_template, use_gpu, rng, laws_weight)
     isempty(sequences) && return 0.0f0
     val_batches = batches(sequences, cfg.training["batch_size"])
     limit = min(length(val_batches), 8)
@@ -392,7 +402,7 @@ function evaluate(model, tokenizer, sequences, cfg, ps, st_template, use_gpu, rn
             targets = to_device(batch.targets, use_gpu),
             mask_matrix = to_device(batch.mask_matrix, use_gpu),
         )
-        loss, st_eval = perigee_diffusion_loss(model, batch_gpu, ps, st_eval)
+        loss, st_eval = perigee_diffusion_loss(model, batch_gpu, ps, st_eval; laws_weight = laws_weight)
         total += loss
     end
     return total / limit

@@ -10,7 +10,7 @@ using JLD2
 
 import CUDA
 
-using ossmv2: PrimeTokenizer, build_perigee_model, prime_encode
+using ossmv2: PrimeTokenizer, build_perigee_model, prime_encode, prime_scale
 
 function load_checkpoint(path)
     return JLD2.load(path)
@@ -73,32 +73,86 @@ function load_model(cfg)
     )
 end
 
+function _splitext(name::AbstractString)
+    idx = findlast(==('.'), name)
+    if idx === nothing
+        return (String(name), "")
+    end
+    stem = idx == 1 ? "" : String(name[1:(idx - 1)])
+    return (stem, String(name[idx:end]))
+end
+
+function resolve_checkpoint_path(cfg, override::Union{Nothing,String})
+    if override !== nothing
+        return (path = override, tried = [override])
+    end
+    training_cfg = get(cfg, "training", Dict{String,Any}())
+    dir = get(training_cfg, "checkpoint_dir", "artifacts/perigee/checkpoints")
+    name = get(training_cfg, "checkpoint_name", "perigee_epoch1.jls")
+    candidate = joinpath(dir, name)
+    tried = String[candidate]
+    isfile(candidate) && return (path = candidate, tried = tried)
+    base, ext = _splitext(name)
+    alt_exts = ext == ".jls" ? [".jld2"] :
+               ext == ".jld2" ? [".jls"] :
+               [".jls", ".jld2"]
+    for alt_ext in alt_exts
+        alt_candidate = joinpath(dir, base * alt_ext)
+        alt_candidate in tried && continue
+        push!(tried, alt_candidate)
+        isfile(alt_candidate) && return (path = alt_candidate, tried = tried)
+    end
+    return (path = candidate, tried = tried)
+end
+
 function generate()
     config_path = get(ARGS, 1, "configs/perigee_train.toml")
-    checkpoint_path = get(ARGS, 2, "artifacts/perigee/checkpoints/perigee_epoch1.jld2")
+    checkpoint_override = length(ARGS) >= 2 ? ARGS[2] : nothing
     prompt = get(ARGS, 3, "Gallia's forces were preparing for the next offensive.")
     steps = parse(Int, get(ARGS, 4, "6"))
     show_matrix = length(ARGS) >= 5 && simple_bool(ARGS[5])
 
     cfg = TOML.parsefile(config_path)
+    checkpoint_info = resolve_checkpoint_path(cfg, checkpoint_override)
+    checkpoint_path = checkpoint_info.path
+    if !isfile(checkpoint_path)
+        error(
+            "No checkpoint found. Checked the following paths: " *
+            join(checkpoint_info.tried, ", "),
+        )
+    end
     sequence_length = cfg["training"]["sequence_length"]
     model = load_model(cfg)
     checkpoint = load_checkpoint(checkpoint_path)
     tokenizer = checkpoint["tokenizer"]
+    norm_factor = prime_scale(tokenizer)
+    inv_norm = 1f0 / norm_factor
+    min_prime = Float32(tokenizer.codec.table[1])
+    max_prime = Float32(tokenizer.codec.table[end])
 
+    gpu_requested = get(cfg["training"], "use_gpu", true)
     use_gpu = false
-    try
-        if CUDA.functional()
-            cap = CUDA.capability(CUDA.device())
-            if cap.major >= 6
+    if gpu_requested
+        try
+            if CUDA.functional()
+                dev = CUDA.device()
+                cap = CUDA.capability(dev)
+                runtime = try
+                    string(CUDA.runtime_version())
+                catch
+                    "unknown"
+                end
                 CUDA.allowscalar(false)
+                println(
+                    "Using CUDA device $(CUDA.name(dev)) (sm_$(cap.major)$(cap.minor)) with runtime $(runtime)",
+                )
                 use_gpu = true
             else
-                @warn "Compute capability $(cap.major).$(cap.minor) is unsupported on this CUDA stack; using CPU for generation"
+                @warn "CUDA.functional() returned false; using CPU for generation"
             end
+        catch err
+            @warn "CUDA.functional() failed during generation; using CPU" error = err
         end
-    catch err
-        @warn "CUDA.functional() failed during generation; using CPU" error = err
     end
     mover = use_gpu ? CUDA.cu : identity
 
@@ -112,24 +166,25 @@ function generate()
     mask_indices = findall(==("[MASK]"), tokens)
 
     function encode_tokens(tok_vec)
-        encoded = Float32.(prime_encode(tokenizer, tok_vec))
+        encoded = Float32.(prime_encode(tokenizer, tok_vec)) .* inv_norm
         return reshape(encoded, sequence_length, 1)
     end
 
     seq = encode_tokens(tokens)
-    seq = use_gpu ? CUDA.asarray(seq) : seq
+    seq = use_gpu ? CUDA.cu(seq) : seq
 
     rng = Random.default_rng()
     for step in 1:steps
         output, st = model(seq, ps, st)
         preds = Array(output.logits)
         for idx in mask_indices
-            tokens[idx] = nearest_token(tokenizer, preds[idx, end])
+            raw = clamp(preds[idx, end] * norm_factor, min_prime, max_prime)
+            tokens[idx] = nearest_token(tokenizer, raw)
         end
         seq = encode_tokens(tokens)
-        seq = use_gpu ? CUDA.asarray(seq) : seq
+        seq = use_gpu ? CUDA.cu(seq) : seq
         if show_matrix
-            encoded_vals = vec(round.(Int, Array(seq)))
+            encoded_vals = vec(round.(Int, Array(seq .* norm_factor)))
             render_matrix(step, tokens, encoded_vals, tokenizer)
         end
     end

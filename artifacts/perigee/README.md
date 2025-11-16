@@ -12,10 +12,10 @@ pipeline introduced in `scripts/train_perigee.jl` and `scripts/generate_perigee.
   `model_dim=128`, `oscillator_count=16`, `num_heads=8`, `mamba_repeat=2`,
   `radius_factor=4.0`).
 - **Optimizer**: AdamW (lr = 2e-4) for 1 epoch, batch size 8.
-- **Hardware note**: the local Tesla M40 (compute capability 5.2) is blocked by
-  CUDA 13’s minimum 7.5 requirement, so `train_perigee.jl` detected the failure and
-  fell back to CPU execution automatically. To use the GPU you would need an older
-  driver/toolkit (≤ CUDA 11.8) or newer hardware.
+- **Hardware note**: the local Tesla M40 (compute capability 5.2) is supported up
+  through CUDA 12.8. `LocalPreferences.toml` pins the runtime to 12.8 so
+  `train_perigee.jl` initializes the GPU successfully even though the host driver
+  advertises CUDA 13.
 - **Command**:
   ```bash
   ./scripts/train_perigee.jl configs/perigee_train.toml
