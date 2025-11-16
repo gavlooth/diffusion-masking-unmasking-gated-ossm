@@ -1,5 +1,5 @@
 [model]
-num_layers = 4
+num_layers = 16
 model_dim = 128
 oscillator_count = 16
 num_heads = 8
@@ -11,10 +11,10 @@ max_radius = 64
 [training]
 train_path = "data_sets/wiki.train.raw"
 val_path = "data_sets/wiki.valid.raw"
-sequence_length = 128
-stride = 64
+sequence_length = 512
+stride = 512
 max_sequences = 4096
-batch_size = 8
+batch_size = 2
 epochs = 1
 learning_rate = 0.0002
 mask_fraction = 0.2
