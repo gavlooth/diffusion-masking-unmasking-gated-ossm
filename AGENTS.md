@@ -27,6 +27,8 @@ function rrule(::typeof(sigmoid_map), x)
 end
 ```
 
+**Transformer radii:** Log-window attention must always include a fixed local neighborhood (currently 24 tokens) in addition to the logarithmic schedule. When you increase `sequence_length`, bump `min_radius`/`base_radius` accordingly so each block sees at least those 24 neighbors plus the log-scaled jumps.
+
 ### Mathematical Commenting Standard
 Before any nontrivial block, state the map with domain/codomain and coordinate formula (e.g., `F: ℝ^{2M} × ℝ^M → ℝ^{2M}`) and reference those equations in comments. Avoid terms like “operator” or “MLP” unless immediately expanded into the explicit affine/nonlinear expression. Show intermediate algebraic steps so reviewers can match each Julia line to the written derivation.
 

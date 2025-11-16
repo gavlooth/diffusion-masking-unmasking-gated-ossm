@@ -102,6 +102,7 @@ struct LogWindowTransformer <: Lux.AbstractLuxLayer
     radius_factor::Float32
     min_radius::Int
     max_radius::Int
+    base_radius::Int
 end
 
 function LogWindowTransformer(
@@ -110,12 +111,13 @@ function LogWindowTransformer(
     radius_factor::Real = 4.0,
     min_radius::Int = 1,
     max_radius::Union{Int,Nothing} = nothing,
+    base_radius::Int = 0,
 )
     radius_factor <= 0 && throw(ArgumentError("radius_factor must be positive"))
     min_r = max(1, min_radius)
     max_r = isnothing(max_radius) ? typemax(Int) : max_radius
     transformer = WindowedTransformer(model_dim, num_heads, min_r)
-    return LogWindowTransformer(transformer, Float32(radius_factor), min_r, max_r)
+    return LogWindowTransformer(transformer, Float32(radius_factor), min_r, max_r, base_radius)
 end
 
 initialparameters(rng::Random.AbstractRNG, layer::LogWindowTransformer) =
@@ -124,10 +126,10 @@ initialparameters(rng::Random.AbstractRNG, layer::LogWindowTransformer) =
 initialstates(rng::Random.AbstractRNG, layer::LogWindowTransformer) =
     initialstates(rng, layer.transformer)
 
-@inline function _log_window_radius(time_steps::Int, factor::Float32, min_r::Int, max_r::Int)
+@inline function _log_window_radius(time_steps::Int, factor::Float32, min_r::Int, max_r::Int, base_r::Int)
     steps = max(time_steps, 1)
     growth = log1p(Float32(steps))
-    raw = Int(ceil(factor * growth))
+    raw = Int(ceil(factor * growth)) + base_r
     return clamp(raw, min_r, max_r)
 end
 
@@ -137,7 +139,7 @@ function (layer::LogWindowTransformer)(
     st::NamedTuple,
 )
     time_steps = size(x, 2)
-    radius = _log_window_radius(time_steps, layer.radius_factor, layer.min_radius, layer.max_radius)
+    radius = _log_window_radius(time_steps, layer.radius_factor, layer.min_radius, layer.max_radius, layer.base_radius)
     return layer.transformer(x, ps, st; radius_override = radius)
 end
 

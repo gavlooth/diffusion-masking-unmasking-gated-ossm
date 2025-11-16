@@ -5,8 +5,8 @@ oscillator_count = 16
 num_heads = 8
 mamba_repeat = 2
 radius_factor = 4.0
-min_radius = 1
-max_radius = 64
+min_radius = 24
+max_radius = 128
 
 [training]
 train_path = "data_sets/wiki.train.raw"

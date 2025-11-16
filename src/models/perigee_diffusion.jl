@@ -42,23 +42,19 @@ function PerigeeMixerBlock(
     model_dim::Int,
     oscillator_count::Int,
     num_heads::Int;
-    first_input_dim::Union{Nothing,Int}=nothing,
     radius_factor::Real = 4.0,
     min_radius::Int = 1,
     max_radius::Union{Int,Nothing} = nothing,
 )
     mamba_repeat > 0 || throw(ArgumentError("mamba_repeat must be positive"))
-    first_dim = isnothing(first_input_dim) ? model_dim : first_input_dim
-    dims = [idx == 1 ? first_dim : model_dim for idx in 1:mamba_repeat]
-    mamba_layers = [
-        OscMambaMixer(dims[idx], model_dim, oscillator_count) for idx = 1:mamba_repeat
-    ]
+    mamba_layers = [OscMambaMixer(model_dim, model_dim, oscillator_count) for _ in 1:mamba_repeat]
     transformer = LogWindowTransformer(
         model_dim,
         num_heads;
         radius_factor = radius_factor,
         min_radius = min_radius,
         max_radius = max_radius,
+        base_radius = 24,
     )
     return PerigeeMixerBlock(
         mamba_layers,
@@ -136,6 +132,7 @@ end
 # -----------------------------------------------------------------------------
 
 struct PerigeeDiffusionLM <: Lux.AbstractLuxLayer
+    input_embed::Lux.Dense
     blocks::Vector{PerigeeMixerBlock}
     final_norm::Lux.LayerNorm
     vocab_proj::Lux.Dense
@@ -145,9 +142,11 @@ function PerigeeDiffusionLM(
     blocks::Vector{PerigeeMixerBlock},
     model_dim::Int,
     vocab_dim::Int,
+    input_dim::Int,
 )
     isempty(blocks) && throw(ArgumentError("must provide at least one block"))
     return PerigeeDiffusionLM(
+        Lux.Dense(input_dim, model_dim),
         blocks,
         Lux.LayerNorm(model_dim),
         Lux.Dense(model_dim, vocab_dim),
@@ -164,7 +163,13 @@ function initialparameters(rng::Random.AbstractRNG, model::PerigeeDiffusionLM)
         Random.MersenneTwister(Random.rand(rng, UInt)),
         model.vocab_proj,
     )
-    return (blocks = block_ps, final_norm = final_norm, vocab_proj = vocab_proj)
+    input_embed = Lux.initialparameters(rng, model.input_embed)
+    return (
+        input_embed = input_embed,
+        blocks = block_ps,
+        final_norm = final_norm,
+        vocab_proj = vocab_proj,
+    )
 end
 
 function initialstates(rng::Random.AbstractRNG, model::PerigeeDiffusionLM)
@@ -175,12 +180,14 @@ function initialstates(rng::Random.AbstractRNG, model::PerigeeDiffusionLM)
     final_norm = Lux.initialstates(rng, model.final_norm)
     vocab_proj =
         Lux.initialstates(Random.MersenneTwister(Random.rand(rng, UInt)), model.vocab_proj)
-    return (blocks = block_st, final_norm = final_norm, vocab_proj = vocab_proj)
+    input_embed = Lux.initialstates(rng, model.input_embed)
+    return (input_embed = input_embed, blocks = block_st, final_norm = final_norm, vocab_proj = vocab_proj)
 end
 
 function (model::PerigeeDiffusionLM)(seq::AbstractMatrix, ps::NamedTuple, st::NamedTuple)
+    embedded, st_embed = model.input_embed(seq, ps.input_embed, st.input_embed)
     fold_init = (
-        sequence = seq,
+        sequence = embedded,
         diffusion = nothing,
         states = (),
     )
@@ -208,7 +215,7 @@ function (model::PerigeeDiffusionLM)(seq::AbstractMatrix, ps::NamedTuple, st::Na
         folded.diffusion === nothing ? zeros(Float32, size(normed)) : folded.diffusion
     block_states = folded.states
     return (logits = logits, diffusion = diffusion_total),
-    (blocks = block_states, final_norm = st_norm, vocab_proj = st_vocab)
+    (input_embed = st_embed, blocks = block_states, final_norm = st_norm, vocab_proj = st_vocab)
 end
 
 function build_perigee_model(
@@ -232,12 +239,11 @@ function build_perigee_model(
             oscillator_count,
             num_heads;
             radius_factor = radius_factor * (1 + radius_growth * (idx - 1)),
-            first_input_dim = idx == 1 ? input_dim : nothing,
             min_radius = min_radius,
             max_radius = max_radius,
         ) for idx = 1:num_layers
     ]
-    return PerigeeDiffusionLM(blocks, model_dim, vocab_dim)
+    return PerigeeDiffusionLM(blocks, model_dim, vocab_dim, input_dim)
 end
 
 # -----------------------------------------------------------------------------
