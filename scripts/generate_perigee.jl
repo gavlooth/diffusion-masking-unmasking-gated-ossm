@@ -39,23 +39,23 @@ end
 
 simple_bool(str) = lowercase(str) in ("1", "true", "yes", "y", "matrix")
 
-function format_cell(token::AbstractString, prime_val::Int, masked::Bool)
-    printable = all(isprint, token)
-    base = printable ? token : "[p=$(prime_val)]"
-    trimmed = length(base) > 12 ? first(base, 11) * "…" : base
-    cell = rpad(trimmed, 12)
-    return masked ? "*" * cell * "*" : " " * cell * " "
+function highlight_token(curr::AbstractString, prev::AbstractString)
+    curr == prev && return curr
+    return string("\e[32m", curr, "\e[0m")
 end
 
-function render_matrix(step::Int, tokens, encoded_vals, tokenizer)
-    masked_positions = Set(findall(==(tokenizer.mask_token), tokens))
-    println("┌ Step $(step) diffusion snapshot" |> String)
-    row = join(
-        (format_cell(tokens[i], encoded_vals[i], i in masked_positions) for i in eachindex(tokens)),
-        "│",
-    )
-    println(row)
-    println("└" * "─" ^ max(length(row) - 1, 1))
+function render_matrix(step::Int, columns, prev_columns, mask_indices; max_rows::Int = 24)
+    total = length(mask_indices)
+    display_count = min(total, max_rows)
+    indices = mask_indices[1:display_count]
+    println("┌ Step $(step) masked-token evolution (showing $(display_count) of $(total))")
+    for idx in indices
+        col_tokens = map(eachindex(columns)) do col_idx
+            highlight_token(columns[col_idx][idx], prev_columns[col_idx][idx])
+        end
+        println(rpad(string(idx), 6) * " │ " * join(col_tokens, " │ "))
+    end
+    println("└")
 end
 
 function load_model(cfg)
@@ -111,6 +111,7 @@ function generate()
     prompt = get(ARGS, 3, "Gallia's forces were preparing for the next offensive.")
     steps = parse(Int, get(ARGS, 4, "6"))
     show_matrix = length(ARGS) >= 5 && simple_bool(ARGS[5])
+    batch_size = length(ARGS) >= 6 ? parse(Int, ARGS[6]) : 1
 
     cfg = TOML.parsefile(config_path)
     checkpoint_info = resolve_checkpoint_path(cfg, checkpoint_override)
@@ -160,37 +161,54 @@ function generate()
     st = move_tree(checkpoint["states"], mover)
 
     prompt_tokens = tokenize_prompt(prompt)
-    tokens = fill("[MASK]", sequence_length)
     limit = min(length(prompt_tokens), sequence_length)
-    tokens[1:limit] = prompt_tokens[1:limit]
-    mask_indices = findall(==("[MASK]"), tokens)
+    token_columns = [begin
+        col = fill("[MASK]", sequence_length)
+        col[1:limit] = prompt_tokens[1:limit]
+        col
+    end for _ in 1:batch_size]
+    mask_indices = findall(==("[MASK]"), token_columns[1])
 
-    function encode_tokens(tok_vec)
-        encoded = Float32.(prime_encode(tokenizer, tok_vec)) .* inv_norm
-        return reshape(encoded, sequence_length, 1)
+    function encode_tokens_matrix(columns)
+        embeddings = map(columns) do tok_vec
+            Float32.(prime_encode(tokenizer, tok_vec)) .* inv_norm
+        end
+        mat = hcat(embeddings...)
+        return reshape(mat, sequence_length, length(columns))
     end
 
-    seq = encode_tokens(tokens)
+    seq = encode_tokens_matrix(token_columns)
     seq = use_gpu ? CUDA.cu(seq) : seq
+    prev_columns = deepcopy(token_columns)
 
     rng = Random.default_rng()
     for step in 1:steps
         output, st = model(seq, ps, st)
         preds = Array(output.logits)
-        for idx in mask_indices
-            raw = clamp(preds[idx, end] * norm_factor, min_prime, max_prime)
-            tokens[idx] = nearest_token(tokenizer, raw)
+        for (col_idx, col_tokens) in enumerate(token_columns)
+            col_preds = preds[:, col_idx]
+            for idx in mask_indices
+                raw = clamp(col_preds[idx] * norm_factor, min_prime, max_prime)
+                col_tokens[idx] = nearest_token(tokenizer, raw)
+            end
         end
-        seq = encode_tokens(tokens)
-        seq = use_gpu ? CUDA.cu(seq) : seq
         if show_matrix
-            encoded_vals = vec(round.(Int, Array(seq .* norm_factor)))
-            render_matrix(step, tokens, encoded_vals, tokenizer)
+            render_matrix(step, token_columns, prev_columns, mask_indices)
         end
+        prev_columns = deepcopy(token_columns)
+        seq = encode_tokens_matrix(token_columns)
+        seq = use_gpu ? CUDA.cu(seq) : seq
     end
 
     println("Prompt: \"$(prompt)\"")
-    println("Generated tokens:\n" * join(tokens, " "))
+    if batch_size == 1
+        println("Generated tokens:\n" * join(token_columns[1], " "))
+    else
+        println("Generated tokens (each batch column):")
+        for (idx, col) in enumerate(token_columns)
+            println("[column $(idx)] " * join(col, " "))
+        end
+    end
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
